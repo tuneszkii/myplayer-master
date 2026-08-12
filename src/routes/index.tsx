@@ -88,10 +88,13 @@ function Index() {
 
   function selectSave(id: string) {
     setSaves((prev) =>
-      prev.map((s) => (s.id === id && !s.build ? { ...s, build: defaultBuild() } : s)),
+      prev.map((s) =>
+        s.id === id ? { ...s, build: s.build ? migrate(s.build) : defaultBuild() } : s,
+      ),
     );
     setActiveId(id);
   }
+
 
   function updateBuild(build: Build) {
     setSaves((prev) =>
