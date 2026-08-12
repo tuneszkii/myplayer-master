@@ -523,13 +523,8 @@ export function buildIdentity(build: Build): Identity {
   ];
 
   const best = candidates.reduce((m, c) => (c.score > m.score ? c : m));
-  return {
-    archetype: twoWay && !best.archetype.startsWith("2-Way") && best.archetype.includes("Defensive") === false
-      ? best.archetype
-      : best.archetype,
-    blurb: best.blurb,
-    takeover: best.takeover,
-  };
+  const blurb = twoWay ? `${best.blurb} Holds up on both ends.` : best.blurb;
+  return { archetype: best.archetype, blurb, takeover: best.takeover };
 }
 
 /* ---------------- helpers ---------------- */
