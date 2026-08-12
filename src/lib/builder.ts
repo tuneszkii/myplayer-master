@@ -307,9 +307,6 @@ export function categoryRatings(position: PositionId, attrs: Attributes): Catego
   });
 }
 
-/** Weighted-category composite. 99 OVR maps to a composite of OVR_PIVOT. */
-export const OVR_PIVOT = 78;
-
 export function weightedComposite(position: PositionId, attrs: Attributes) {
   const w = POSITION_WEIGHTS[position];
   const cw = categoryWeights(position);
@@ -322,31 +319,44 @@ export function weightedComposite(position: PositionId, attrs: Attributes) {
   return total;
 }
 
-export function overall(position: PositionId, attrs: Attributes) {
+/**
+ * 99 OVR maps to a weighted-category composite of `pivot`, which is solved per
+ * body: it sits just under the best composite this body can legally reach, so
+ * 99 is a budget puzzle rather than a reward for maxing everything.
+ */
+export function overall(position: PositionId, attrs: Attributes, pivot: number) {
   const composite = weightedComposite(position, attrs);
-  const progress = (composite - BASE_ATTR) / (OVR_PIVOT - BASE_ATTR);
+  const progress = (composite - BASE_ATTR) / Math.max(pivot - BASE_ATTR, 1);
   return clamp(Math.round(BASE_ATTR + (TARGET_OVR - BASE_ATTR) * progress), BASE_ATTR, TARGET_OVR);
 }
 
 /* ---------------- budget calibration (greedy solver) ---------------- */
 
+export interface BuildMath {
+  caps: Record<AttrKey, number>;
+  pivot: number;
+  budget: number;
+}
+
 /**
- * Budget is derived from position + body: we solve the build near-optimally and
- * grant a small slack. 99 OVR is therefore reachable only with efficient
- * spending, never by maxing everything.
+ * Greedily solve the body for composite-per-cost efficiency. The walk gives us
+ * both the ceiling of this body (the pivot for 99 OVR) and the cost of getting
+ * there (the attribute budget, plus a small slack).
  */
-export function totalBudget(body: Body) {
+export function buildMath(body: Body): BuildMath {
   const caps = attributeCaps(body);
   const attrs = baseAttributes();
+  const path: { composite: number; cost: number }[] = [
+    { composite: weightedComposite(body.position, attrs), cost: 0 },
+  ];
   let cost = 0;
-  for (let step = 0; step < 3000; step++) {
-    if (weightedComposite(body.position, attrs) >= OVR_PIVOT) break;
+
+  for (let step = 0; step < 4000; step++) {
     let best: { key: AttrKey; ratio: number; cost: number } | null = null;
     const pools = poolStates(caps, attrs);
     for (const k of ATTR_KEYS) {
       if (attrs[k] >= caps[k]) continue;
-      const blocked = pools.some((p) => p.attrs.includes(k) && p.used >= p.capacity);
-      if (blocked) continue;
+      if (pools.some((p) => p.attrs.includes(k) && p.used >= p.capacity)) continue;
       const c = pointCost(body.position, k, attrs[k]);
       const before = weightedComposite(body.position, attrs);
       attrs[k] += 1;
@@ -358,9 +368,15 @@ export function totalBudget(body: Body) {
     if (!best) break;
     attrs[best.key] += 1;
     cost += best.cost;
+    path.push({ composite: weightedComposite(body.position, attrs), cost });
   }
-  return Math.round(cost * 1.07);
+
+  const ceiling = path[path.length - 1]!.composite;
+  const pivot = BASE_ATTR + (ceiling - BASE_ATTR) * 0.9;
+  const needed = path.find((p) => p.composite >= pivot)?.cost ?? cost;
+  return { caps, pivot, budget: Math.round(needed * 1.06) };
 }
+
 
 /* ---------------- badges ---------------- */
 
