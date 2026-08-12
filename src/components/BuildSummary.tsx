@@ -19,8 +19,18 @@ const TIER_COLOR: Record<string, string> = {
   "Hall of Fame": "text-destructive",
 };
 
-export function BuildSummary({ build, spent, budget }: { build: Build; spent: number; budget: number }) {
-  const ovr = overall(build.position, build.attrs);
+export function BuildSummary({
+  build,
+  spent,
+  budget,
+  pivot,
+}: {
+  build: Build;
+  spent: number;
+  budget: number;
+  pivot: number;
+}) {
+  const ovr = overall(build.position, build.attrs, pivot);
   const cats = categoryRatings(build.position, build.attrs);
   const quality = buildQuality(build);
   const identity = buildIdentity(build);

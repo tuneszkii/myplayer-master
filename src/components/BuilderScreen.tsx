@@ -7,7 +7,6 @@ import {
   ATTR_LIST,
   BASE_ATTR,
   CATEGORIES,
-  attributeCaps,
   baseAttributes,
   clampAttrsToBody,
   effectiveMax,
@@ -16,7 +15,7 @@ import {
   pointCost,
   POSITIONS,
   spentBudget,
-  totalBudget,
+  buildMath,
   weightRange,
   wingspanRange,
   type AttrKey,
@@ -41,10 +40,9 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
   const wRange = weightRange(build.height);
   const wsRange = wingspanRange(build.height);
 
-  const caps = useMemo(() => attributeCaps(build), [build]);
-  const budget = useMemo(
+  const math = useMemo(
     () =>
-      totalBudget({
+      buildMath({
         position: build.position,
         height: build.height,
         weight: build.weight,
@@ -52,9 +50,11 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
       }),
     [build.position, build.height, build.weight, build.wingspan],
   );
+  const caps = math.caps;
+  const budget = math.budget;
   const spent = useMemo(() => spentBudget(build.position, build.attrs), [build.position, build.attrs]);
   const remaining = budget - spent;
-  const ovr = overall(build.position, build.attrs);
+  const ovr = overall(build.position, build.attrs, math.pivot);
 
   function setBody(patch: Partial<Build>) {
     const next = { ...build, ...patch };
@@ -267,7 +267,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
           </section>
 
           <div className={`${tab === "summary" ? "" : "hidden"} lg:block`}>
-            <BuildSummary build={build} spent={spent} budget={budget} />
+            <BuildSummary build={build} spent={spent} budget={budget} pivot={math.pivot} />
           </div>
         </div>
       </div>
