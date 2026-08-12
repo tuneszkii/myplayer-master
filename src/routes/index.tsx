@@ -2,7 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { BuilderScreen } from "@/components/BuilderScreen";
 import { SaveSelect } from "@/components/SaveSelect";
-import { POSITIONS, weightRange, wingspanRange, type Build, type SaveSlot } from "@/lib/builder";
+import {
+  POSITIONS,
+  baseAttributes,
+  clampAttrsToBody,
+  weightRange,
+  wingspanRange,
+  type Build,
+  type SaveSlot,
+} from "@/lib/builder";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -35,8 +44,15 @@ function defaultBuild(): Build {
     weight: Math.round((weightRange(height).min + weightRange(height).max) / 2),
     wingspan: wingspanRange(height).min + 5,
     hand: "Right",
+    attrs: baseAttributes(),
   };
 }
+
+/** Older saves may lack attributes or exceed current caps. */
+function migrate(build: Build): Build {
+  return clampAttrsToBody({ ...build, attrs: { ...baseAttributes(), ...(build.attrs ?? {}) } });
+}
+
 
 function Index() {
   const [saves, setSaves] = useState<SaveSlot[]>([]);
@@ -72,10 +88,13 @@ function Index() {
 
   function selectSave(id: string) {
     setSaves((prev) =>
-      prev.map((s) => (s.id === id && !s.build ? { ...s, build: defaultBuild() } : s)),
+      prev.map((s) =>
+        s.id === id ? { ...s, build: s.build ? migrate(s.build) : defaultBuild() } : s,
+      ),
     );
     setActiveId(id);
   }
+
 
   function updateBuild(build: Build) {
     setSaves((prev) =>
