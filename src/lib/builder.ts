@@ -10,25 +10,35 @@ export interface Position {
 }
 
 export const POSITIONS: Position[] = [
-  { id: "PG", name: "Point Guard", blurb: "Floor general. Handles + speed.", minHeight: 67, maxHeight: 78 },
-  { id: "SG", name: "Shooting Guard", blurb: "Scorer off the catch and drive.", minHeight: 72, maxHeight: 81 },
-  { id: "SF", name: "Small Forward", blurb: "Two-way wing, does everything.", minHeight: 75, maxHeight: 82 },
-  { id: "PF", name: "Power Forward", blurb: "Glass + paint presence.", minHeight: 77, maxHeight: 85 },
-  { id: "C", name: "Center", blurb: "Rim protector, lob threat.", minHeight: 80, maxHeight: 87 },
+  { id: "PG", name: "Point Guard", blurb: "-", minHeight: 67, maxHeight: 78 },
+  { id: "SG", name: "Shooting Guard", blurb: "-", minHeight: 72, maxHeight: 81 },
+  { id: "SF", name: "Small Forward", blurb: "-", minHeight: 75, maxHeight: 82 },
+  { id: "PF", name: "Power Forward", blurb: "-", minHeight: 77, maxHeight: 85 },
+  { id: "C", name: "Center", blurb: "-", minHeight: 80, maxHeight: 87 },
 ];
 
 export function formatHeight(inches: number) {
   return `${Math.floor(inches / 12)}'${inches % 12}"`;
 }
 
-export function weightRange(heightIn: number) {
+export function weightRange(heightIn: number, position: PositionId) {
   const min = Math.round(1.95 * heightIn + 5);
-  const max = min + 95;
+
+  const positionBonus = {
+    PG: 45,
+    SG: 50,
+    SF: 60,
+    PF: 75,
+    C: 90,
+  }[position];
+
+  const max = min + positionBonus;
+
   return { min, max };
 }
 
 export function wingspanRange(heightIn: number) {
-  return { min: heightIn - 3, max: heightIn + 9 };
+  return { min: heightIn - 3, max: heightIn + 6 };
 }
 
 export const BASE_ATTR = 25;
