@@ -44,8 +44,15 @@ function defaultBuild(): Build {
     weight: Math.round((weightRange(height).min + weightRange(height).max) / 2),
     wingspan: wingspanRange(height).min + 5,
     hand: "Right",
+    attrs: baseAttributes(),
   };
 }
+
+/** Older saves may lack attributes or exceed current caps. */
+function migrate(build: Build): Build {
+  return clampAttrsToBody({ ...build, attrs: { ...baseAttributes(), ...(build.attrs ?? {}) } });
+}
+
 
 function Index() {
   const [saves, setSaves] = useState<SaveSlot[]>([]);
