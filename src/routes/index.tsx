@@ -1,23 +1,110 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { BuilderScreen } from "@/components/BuilderScreen";
+import { SaveSelect } from "@/components/SaveSelect";
+import { POSITIONS, weightRange, wingspanRange, type Build, type SaveSlot } from "@/lib/builder";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "NBA 2K26 MyPlayer Builder — Caps by Position & Body" },
+      {
+        name: "description",
+        content:
+          "Build an NBA 2K26 MyPlayer: pick a save, position, height, weight, wingspan and hand, and see live attribute caps.",
+      },
+      { property: "og:title", content: "NBA 2K26 MyPlayer Builder" },
+      {
+        property: "og:description",
+        content:
+          "Position-locked height ranges, height-locked weight and wingspan, and live min/max attribute caps.",
+      },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
+const STORAGE_KEY = "2k26-myplayer-saves";
+
+function defaultBuild(): Build {
+  const pos = POSITIONS[2]!;
+  const height = 78;
+  return {
+    position: pos.id,
+    height,
+    weight: Math.round((weightRange(height).min + weightRange(height).max) / 2),
+    wingspan: wingspanRange(height).min + 5,
+    hand: "Right",
+  };
+}
+
 function Index() {
+  const [saves, setSaves] = useState<SaveSlot[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setSaves(JSON.parse(raw) as SaveSlot[]);
+    } catch {
+      /* ignore corrupt storage */
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (hydrated) localStorage.setItem(STORAGE_KEY, JSON.stringify(saves));
+  }, [saves, hydrated]);
+
+  const active = saves.find((s) => s.id === activeId) ?? null;
+
+  function createSave(name: string) {
+    const slot: SaveSlot = {
+      id: crypto.randomUUID(),
+      name,
+      build: defaultBuild(),
+      updatedAt: Date.now(),
+    };
+    setSaves((prev) => [...prev, slot]);
+    setActiveId(slot.id);
+  }
+
+  function selectSave(id: string) {
+    setSaves((prev) =>
+      prev.map((s) => (s.id === id && !s.build ? { ...s, build: defaultBuild() } : s)),
+    );
+    setActiveId(id);
+  }
+
+  function updateBuild(build: Build) {
+    setSaves((prev) =>
+      prev.map((s) => (s.id === activeId ? { ...s, build, updatedAt: Date.now() } : s)),
+    );
+  }
+
+  if (!hydrated) {
+    return <div className="min-h-screen court-bg" />;
+  }
+
+  if (active?.build) {
+    return (
+      <BuilderScreen
+        save={active}
+        build={active.build}
+        onChange={updateBuild}
+        onBack={() => setActiveId(null)}
+      />
+    );
+  }
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
+    <div className="court-bg">
+      <SaveSelect
+        saves={saves}
+        onSelect={selectSave}
+        onCreate={createSave}
+        onDelete={(id) => setSaves((prev) => prev.filter((s) => s.id !== id))}
       />
     </div>
   );
