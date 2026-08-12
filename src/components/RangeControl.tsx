@@ -39,7 +39,7 @@ export function RangeControl({
         min={min}
         max={max}
         step={step}
-        onValueChange={([v]) => onChange(v)}
+        onValueChange={(v) => onChange(v[0] ?? min)}
       />
       <div className="flex justify-between text-[11px] uppercase tracking-widest text-muted-foreground">
         <span>Min {fmt(min)}</span>
