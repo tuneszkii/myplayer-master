@@ -2,7 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { BuilderScreen } from "@/components/BuilderScreen";
 import { SaveSelect } from "@/components/SaveSelect";
-import { POSITIONS, weightRange, wingspanRange, type Build, type SaveSlot } from "@/lib/builder";
+import {
+  POSITIONS,
+  baseAttributes,
+  clampAttrsToBody,
+  weightRange,
+  wingspanRange,
+  type Build,
+  type SaveSlot,
+} from "@/lib/builder";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
