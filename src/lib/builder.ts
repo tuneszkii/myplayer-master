@@ -585,19 +585,6 @@ export function clampAttrsToBody(build: Build): Build {
   const caps = attributeCaps(build);
   const attrs = { ...build.attrs };
   for (const k of ATTR_KEYS) attrs[k] = clamp(attrs[k] ?? BASE_ATTR, BASE_ATTR, caps[k]);
-  // enforce pools by trimming the least efficient overspend
-  let guard = 0;
-  while (guard++ < 2000) {
-    const pools = poolStates(caps, attrs);
-    const over = pools.find((p) => p.used > p.capacity);
-    if (!over) break;
-    const worst = over.attrs
-      .filter((k) => attrs[k] > BASE_ATTR)
-      .sort(
-        (x, y) => POSITION_WEIGHTS[build.position][x] - POSITION_WEIGHTS[build.position][y],
-      )[0];
-    if (!worst) break;
-    attrs[worst] -= 1;
-  }
   return { ...build, attrs };
 }
+
