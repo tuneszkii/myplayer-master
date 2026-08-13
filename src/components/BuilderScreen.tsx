@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { RangeControl } from "@/components/RangeControl";
 import { AttributeRow } from "@/components/AttributeRow";
 import { BuildSummary } from "@/components/BuildSummary";
 import {
   ATTR_LIST,
+  attributeCaps,
   BASE_ATTR,
   CATEGORIES,
   baseAttributes,
@@ -264,10 +265,10 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                         label={a.label}
                         value={build.attrs[a.key]}
                         cap={caps[a.key]}
-                        max={effectiveMax(a.key, caps, build.attrs)}
+                        max={effectiveMax(a.key, caps)}
                         position={build.position}
                         remaining={remaining}
-                        onSet={(v) => setAttr(a.key, v)}
+                        onStep={(d) => stepAttr(a.key, d)}
                       />
                     ))}
                   </ul>
