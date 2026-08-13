@@ -1,3 +1,4 @@
+import { useHoldRepeat } from "@/hooks/use-hold-repeat";
 import {
   BASE_ATTR,
   POSITION_WEIGHTS,
@@ -11,10 +12,10 @@ interface Props {
   label: string;
   value: number;
   cap: number;
-  max: number; // effective max (cap + pool room)
+  max: number; // effective max (body potential cap)
   position: PositionId;
   remaining: number;
-  onSet: (v: number) => void;
+  onStep: (delta: number) => void;
 }
 
 export function AttributeRow({
@@ -25,12 +26,15 @@ export function AttributeRow({
   max,
   position,
   remaining,
-  onSet,
+  onStep,
 }: Props) {
   const weight = POSITION_WEIGHTS[position][attrKey];
   const nextCost = value < max ? pointCost(position, attrKey, value) : null;
   const canUp = nextCost != null && nextCost <= remaining;
   const canDown = value > BASE_ATTR;
+
+  const up = useHoldRepeat(() => onStep(1));
+  const down = useHoldRepeat(() => onStep(-1));
 
   return (
     <li className="rounded-md border border-border bg-secondary/40 px-3 py-2">
@@ -51,8 +55,8 @@ export function AttributeRow({
           <button
             aria-label={`Lower ${label}`}
             disabled={!canDown}
-            onClick={() => onSet(value - 1)}
-            className="h-8 w-8 rounded border border-border text-lg leading-none disabled:opacity-30"
+            {...down}
+            className="h-8 w-8 select-none touch-none rounded border border-border text-lg leading-none disabled:opacity-30"
           >
             −
           </button>
@@ -62,8 +66,8 @@ export function AttributeRow({
           <button
             aria-label={`Raise ${label}`}
             disabled={!canUp}
-            onClick={() => onSet(value + 1)}
-            className="h-8 w-8 rounded border border-border text-lg leading-none disabled:opacity-30"
+            {...up}
+            className="h-8 w-8 select-none touch-none rounded border border-border text-lg leading-none disabled:opacity-30"
           >
             +
           </button>

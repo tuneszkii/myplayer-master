@@ -203,68 +203,17 @@ export function baseAttributes(): Attributes {
   return Object.fromEntries(ATTR_KEYS.map((k) => [k, BASE_ATTR])) as Attributes;
 }
 
-/* ---------------- shared potential pools ---------------- */
+/* ---------------- potential limits ---------------- */
 
-export interface PoolDef {
-  id: string;
-  label: string;
-  attrs: AttrKey[];
-  share: number; // fraction of members' combined headroom you may actually buy
+/**
+ * Highest value an attribute can currently be raised to. Only the body's hard
+ * potential cap applies — there are no category maximums, so the position
+ * weighting (cost) is what limits how far a build can be pushed.
+ */
+export function effectiveMax(key: AttrKey, caps: Record<AttrKey, number>): number {
+  return Math.max(BASE_ATTR, caps[key]);
 }
 
-export const POOLS: PoolDef[] = [
-  {
-    id: "athletic",
-    label: "Athletic Finishing",
-    attrs: ["drivingDunk", "drivingLayup", "vertical", "speed", "strength"],
-    share: 0.6,
-  },
-  {
-    id: "creation",
-    label: "Shot Creation",
-    attrs: ["threePoint", "midRange", "freeThrow", "ballHandle", "speedWithBall", "passAccuracy"],
-    share: 0.58,
-  },
-  {
-    id: "interior",
-    label: "Interior Presence",
-    attrs: ["standingDunk", "postControl", "closeShot", "interiorDefense", "block", "offensiveRebound", "defensiveRebound", "strength"],
-    share: 0.58,
-  },
-  {
-    id: "perimeter",
-    label: "Perimeter Defense",
-    attrs: ["perimeterDefense", "steal", "agility", "speed"],
-    share: 0.62,
-  },
-];
-
-export interface PoolState {
-  id: string;
-  label: string;
-  attrs: AttrKey[];
-  used: number;
-  capacity: number;
-}
-
-export function poolStates(caps: Record<AttrKey, number>, attrs: Attributes): PoolState[] {
-  return POOLS.map((p) => {
-    const headroom = p.attrs.reduce((s, k) => s + Math.max(0, caps[k] - BASE_ATTR), 0);
-    const used = p.attrs.reduce((s, k) => s + Math.max(0, attrs[k] - BASE_ATTR), 0);
-    return { id: p.id, label: p.label, attrs: p.attrs, used, capacity: Math.round(headroom * p.share) };
-  });
-}
-
-/** Highest value an attribute can currently be raised to, given caps + pools. */
-export function effectiveMax(key: AttrKey, caps: Record<AttrKey, number>, attrs: Attributes): number {
-  let max = caps[key];
-  for (const p of poolStates(caps, attrs)) {
-    if (!p.attrs.includes(key)) continue;
-    const roomInPool = p.capacity - p.used;
-    max = Math.min(max, attrs[key] + Math.max(0, roomInPool));
-  }
-  return Math.max(BASE_ATTR, max);
-}
 
 /* ---------------- nonlinear cost ---------------- */
 
@@ -363,10 +312,9 @@ export function buildMath(body: Body): BuildMath {
 
   for (let step = 0; step < 4000; step++) {
     let best: { key: AttrKey; ratio: number; cost: number } | null = null;
-    const pools = poolStates(caps, attrs);
     for (const k of ATTR_KEYS) {
       if (attrs[k] >= caps[k]) continue;
-      if (pools.some((p) => p.attrs.includes(k) && p.used >= p.capacity)) continue;
+
       const c = pointCost(body.position, k, attrs[k]);
       const before = weightedComposite(body.position, attrs);
       attrs[k] += 1;
@@ -390,48 +338,115 @@ export function buildMath(body: Body): BuildMath {
 
 /* ---------------- badges ---------------- */
 
-export type BadgeTier = "None" | "Bronze" | "Silver" | "Gold" | "Elite" | "Hall of Fame";
+export type BadgeTier = "None" | "Bronze" | "Silver" | "Gold" | "Elite" | "Legendary";
 
-const BADGE_STEPS: { tier: BadgeTier; min: number }[] = [
-  { tier: "Hall of Fame", min: 95 },
-  { tier: "Elite", min: 90 },
-  { tier: "Gold", min: 85 },
-  { tier: "Silver", min: 80 },
-  { tier: "Bronze", min: 75 },
+export const BADGE_TIER_ORDER: BadgeTier[] = ["None", "Bronze", "Silver", "Gold", "Elite", "Legendary"];
+
+export type BadgeCategory = "Finishing" | "Shooting" | "Playmaking" | "Defense & Rebounding";
+
+export interface BadgeDef {
+  id: string;
+  label: string;
+  category: BadgeCategory;
+  attr: AttrKey;
+  desc: string;
+  /** Bronze, Silver, Gold, Elite, Legendary thresholds. */
+  steps: [number, number, number, number, number];
+}
+
+const T = (a: number, b: number, c: number, d: number, e: number) =>
+  [a, b, c, d, e] as [number, number, number, number, number];
+
+const S1 = T(55, 70, 82, 92, 97);
+const S2 = T(50, 68, 80, 90, 96);
+const S3 = T(60, 72, 84, 93, 98);
+
+export const BADGES: BadgeDef[] = [
+  // Finishing
+  { id: "rimAttack", label: "Rim Attack", category: "Finishing", attr: "drivingLayup", steps: S1, desc: "Improves the player's ability to reach and finish at the basket when driving." },
+  { id: "contactScoring", label: "Contact Scoring", category: "Finishing", attr: "drivingDunk", steps: S2, desc: "Helps maintain finishing effectiveness when absorbing body contact from defenders." },
+  { id: "closeTouch", label: "Close Touch", category: "Finishing", attr: "closeShot", steps: S1, desc: "Improves consistency on short shots and finishes around the basket." },
+  { id: "drivingCraft", label: "Driving Craft", category: "Finishing", attr: "drivingLayup", steps: S1, desc: "Improves the ability to adjust angles, avoid defenders, and finish after changing direction." },
+  { id: "aerialFinishing", label: "Aerial Finishing", category: "Finishing", attr: "drivingDunk", steps: S2, desc: "Improves control and accuracy when finishing while airborne." },
+  { id: "postTechnique", label: "Post Technique", category: "Finishing", attr: "postControl", steps: S1, desc: "Improves effectiveness when creating scoring opportunities with back-to-basket moves." },
+  { id: "drawContact", label: "Draw Contact", category: "Finishing", attr: "strength", steps: S1, desc: "Increases the likelihood of forcing physical interactions when attacking the basket." },
+  { id: "finishConsistency", label: "Finish Consistency", category: "Finishing", attr: "closeShot", steps: S3, desc: "Reduces performance drops on difficult or contested finishing attempts." },
+
+  // Defense & Rebounding
+  { id: "onBallContainment", label: "On-Ball Containment", category: "Defense & Rebounding", attr: "perimeterDefense", steps: S1, desc: "Helps the defender stay attached to ball handlers and prevent straight-line drives." },
+  { id: "reactionSpeed", label: "Reaction Speed", category: "Defense & Rebounding", attr: "agility", steps: S1, desc: "Improves how quickly the player responds to sudden offensive movements." },
+  { id: "disruption", label: "Disruption", category: "Defense & Rebounding", attr: "steal", steps: S2, desc: "Makes it easier to interfere with dribbles, passing lanes, and offensive actions." },
+  { id: "rimProtection", label: "Rim Protection", category: "Defense & Rebounding", attr: "block", steps: S1, desc: "Improves the ability to challenge, alter, and discourage shots near the basket." },
+  { id: "defensivePositioning", label: "Defensive Positioning", category: "Defense & Rebounding", attr: "interiorDefense", steps: S3, desc: "Helps the player automatically maintain better defensive angles and spacing." },
+  { id: "screenResistance", label: "Screen Resistance", category: "Defense & Rebounding", attr: "strength", steps: S1, desc: "Reduces the effectiveness of screens against the defender." },
+  { id: "deflectionSkill", label: "Deflection Skill", category: "Defense & Rebounding", attr: "steal", steps: S1, desc: "Improves the player's ability to get hands on nearby passes without completely committing to a steal." },
+  { id: "boxOutStrength", label: "Box-Out Strength", category: "Defense & Rebounding", attr: "strength", steps: S1, desc: "Improves the ability to establish and maintain rebounding position against opponents." },
+  { id: "reboundControl", label: "Rebound Control", category: "Defense & Rebounding", attr: "defensiveRebound", steps: S1, desc: "Improves the ability to secure rebounds and maintain possession after grabbing them." },
+  { id: "crashAwareness", label: "Crash Awareness", category: "Defense & Rebounding", attr: "offensiveRebound", steps: S1, desc: "Improves positioning and decision-making when attacking the offensive glass." },
+
+  // Shooting
+  { id: "deepAccuracy", label: "Deep Accuracy", category: "Shooting", attr: "threePoint", steps: S1, desc: "Improves shooting consistency from long distance." },
+  { id: "pullUpAccuracy", label: "Pull-Up Accuracy", category: "Shooting", attr: "midRange", steps: S1, desc: "Improves shot effectiveness when shooting immediately after creating space or moving." },
+  { id: "setShotAccuracy", label: "Set Shot Accuracy", category: "Shooting", attr: "threePoint", steps: S1, desc: "Improves consistency on stationary shots with the player's feet set." },
+  { id: "midrangePrecision", label: "Midrange Precision", category: "Shooting", attr: "midRange", steps: S1, desc: "Improves accuracy on shots from the intermediate range." },
+  { id: "foulLineAccuracy", label: "Foul-Line Accuracy", category: "Shooting", attr: "freeThrow", steps: S3, desc: "Improves consistency on free throws." },
+  { id: "shotStability", label: "Shot Stability", category: "Shooting", attr: "midRange", steps: S1, desc: "Reduces the negative effect of defensive pressure and movement on shooting." },
+  { id: "releaseControl", label: "Release Control", category: "Shooting", attr: "threePoint", steps: S1, desc: "Makes the player's ideal shooting window more forgiving and consistent." },
+  { id: "range", label: "Range", category: "Shooting", attr: "threePoint", steps: T(60, 75, 85, 93, 98), desc: "Extends the distance from which the player can shoot effectively." },
+  { id: "pressureShooting", label: "Pressure Shooting", category: "Shooting", attr: "freeThrow", steps: S3, desc: "Improves shooting performance during high-pressure situations such as late-game possessions." },
+
+  // Playmaking
+  { id: "handleControl", label: "Handle Control", category: "Playmaking", attr: "ballHandle", steps: S1, desc: "Improves the player's ability to maintain control while performing dribble moves." },
+  { id: "changeOfDirection", label: "Change of Direction", category: "Playmaking", attr: "speedWithBall", steps: S1, desc: "Makes directional changes quicker and more responsive while dribbling." },
+  { id: "burstCreation", label: "Burst Creation", category: "Playmaking", attr: "speedWithBall", steps: S1, desc: "Improves the ability to accelerate out of dribble moves and create separation." },
+  { id: "passingPrecision", label: "Passing Precision", category: "Playmaking", attr: "passAccuracy", steps: S1, desc: "Improves pass accuracy, particularly on difficult or tightly targeted passes." },
+  { id: "passingSpeed", label: "Passing Speed", category: "Playmaking", attr: "passAccuracy", steps: S1, desc: "Increases the speed at which passes travel to teammates." },
+  { id: "decisionMaking", label: "Decision Making", category: "Playmaking", attr: "passAccuracy", steps: S3, desc: "Improves the player's ability to select effective actions based on the defensive situation." },
+  { id: "courtVision", label: "Court Vision", category: "Playmaking", attr: "passAccuracy", steps: S1, desc: "Improves awareness of open teammates and passing opportunities." },
+  { id: "ballSecurity", label: "Ball Security", category: "Playmaking", attr: "ballHandle", steps: S3, desc: "Reduces the likelihood of losing the ball when pressured or performing risky actions." },
+  { id: "paceControl", label: "Pace Control", category: "Playmaking", attr: "speedWithBall", steps: S1, desc: "Improves the ability to change speeds and manipulate defenders while attacking." },
+  { id: "playmakingUnderPressure", label: "Playmaking Under Pressure", category: "Playmaking", attr: "ballHandle", steps: S1, desc: "Reduces the negative effects of defensive pressure on dribbling and passing." },
 ];
 
-const BADGE_ATTRS: { key: AttrKey; label: string; offset?: number }[] = [
-  { key: "threePoint", label: "Shooting" },
-  { key: "midRange", label: "Mid-Range" },
-  { key: "drivingDunk", label: "Contact Finishing", offset: 5 },
-  { key: "standingDunk", label: "Lob Finishing", offset: 5 },
-  { key: "drivingLayup", label: "Layup Package" },
-  { key: "ballHandle", label: "Dribble Moves" },
-  { key: "passAccuracy", label: "Playmaking" },
-  { key: "perimeterDefense", label: "On-Ball Defense" },
-  { key: "interiorDefense", label: "Paint Defense" },
-  { key: "block", label: "Rim Protection" },
-  { key: "defensiveRebound", label: "Rebounding" },
-  { key: "strength", label: "Physical" },
+export const BADGE_CATEGORIES: BadgeCategory[] = [
+  "Finishing",
+  "Shooting",
+  "Playmaking",
+  "Defense & Rebounding",
 ];
 
 export interface BadgeState {
+  id: string;
   key: AttrKey;
   label: string;
+  category: BadgeCategory;
+  desc: string;
   value: number;
   tier: BadgeTier;
   next: number | null;
 }
 
 export function badgeStates(attrs: Attributes): BadgeState[] {
-  return BADGE_ATTRS.map((b) => {
-    const off = b.offset ?? 0;
-    const v = attrs[b.key];
-    const tier = BADGE_STEPS.find((s) => v >= s.min + off)?.tier ?? "None";
-    const next = [...BADGE_STEPS].reverse().find((s) => v < s.min + off);
-    return { key: b.key, label: b.label, value: v, tier, next: next ? next.min + off : null };
+  return BADGES.map((b) => {
+    const v = attrs[b.attr];
+    let tierIndex = 0;
+    b.steps.forEach((min, i) => {
+      if (v >= min) tierIndex = i + 1;
+    });
+    const next = b.steps.find((min) => v < min) ?? null;
+    return {
+      id: b.id,
+      key: b.attr,
+      label: b.label,
+      category: b.category,
+      desc: b.desc,
+      value: v,
+      tier: BADGE_TIER_ORDER[tierIndex]!,
+      next,
+    };
   });
 }
+
 
 /* ---------------- build quality ---------------- */
 
@@ -462,11 +477,22 @@ export function buildQuality(build: Build): Quality {
   const efficiency = clamp(Math.round(((avgWeight - 0.75) / 0.5) * 100), 0, 100);
 
   const badges = badgeStates(attrs);
-  const badgePts = badges.reduce((s, b) => {
-    const tierScore = { None: 0, Bronze: 1, Silver: 2, Gold: 3, Elite: 4, "Hall of Fame": 5 }[b.tier];
-    return s + tierScore * w[b.key];
-  }, 0);
-  const badgeScore = clamp(Math.round((badgePts / 26) * 100), 0, 100);
+  const TIER_SCORE: Record<BadgeTier, number> = {
+    None: 0,
+    Bronze: 1,
+    Silver: 2,
+    Gold: 3,
+    Elite: 4,
+    Legendary: 5,
+  };
+  let badgePts = 0;
+  let badgeMax = 0;
+  for (const b of badges) {
+    badgePts += TIER_SCORE[b.tier] * w[b.key];
+    badgeMax += 5 * w[b.key];
+  }
+  const badgeScore = clamp(Math.round((badgePts / Math.max(badgeMax, 1)) * 100), 0, 100);
+
 
   const keyAttrs = ATTR_KEYS.filter((k) => w[k] >= 1.1);
   const fitRaw = keyAttrs.reduce((s, k) => s + attrs[k] / Math.max(caps[k], 1), 0) / Math.max(keyAttrs.length, 1);
@@ -559,19 +585,6 @@ export function clampAttrsToBody(build: Build): Build {
   const caps = attributeCaps(build);
   const attrs = { ...build.attrs };
   for (const k of ATTR_KEYS) attrs[k] = clamp(attrs[k] ?? BASE_ATTR, BASE_ATTR, caps[k]);
-  // enforce pools by trimming the least efficient overspend
-  let guard = 0;
-  while (guard++ < 2000) {
-    const pools = poolStates(caps, attrs);
-    const over = pools.find((p) => p.used > p.capacity);
-    if (!over) break;
-    const worst = over.attrs
-      .filter((k) => attrs[k] > BASE_ATTR)
-      .sort(
-        (x, y) => POSITION_WEIGHTS[build.position][x] - POSITION_WEIGHTS[build.position][y],
-      )[0];
-    if (!worst) break;
-    attrs[worst] -= 1;
-  }
   return { ...build, attrs };
 }
+

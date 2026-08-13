@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { RangeControl } from "@/components/RangeControl";
 import { AttributeRow } from "@/components/AttributeRow";
 import { BuildSummary } from "@/components/BuildSummary";
 import {
   ATTR_LIST,
+  attributeCaps,
   BASE_ATTR,
   CATEGORIES,
   baseAttributes,
@@ -15,6 +16,7 @@ import {
   pointCost,
   POSITIONS,
   spentBudget,
+  TARGET_OVR,
   buildMath,
   weightRange,
   wingspanRange,
@@ -55,6 +57,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
   const spent = useMemo(() => spentBudget(build.position, build.attrs), [build.position, build.attrs]);
   const remaining = budget - spent;
   const ovr = overall(build.position, build.attrs, math.pivot);
+  const ready = ovr >= TARGET_OVR;
 
   function setBody(patch: Partial<Build>) {
     const next = { ...build, ...patch };
@@ -70,16 +73,26 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
     setBody({ position: id, height: clamp(build.height, p.minHeight, p.maxHeight) });
   }
 
-  function setAttr(key: AttrKey, value: number) {
-    const max = effectiveMax(key, caps, build.attrs);
-    const target = clamp(value, BASE_ATTR, max);
-    if (target > build.attrs[key]) {
-      let cost = 0;
-      for (let v = build.attrs[key]; v < target; v++) cost += pointCost(build.position, key, v);
-      if (cost > remaining) return;
+  // Held +/- buttons fire faster than React re-renders, so step from a ref of
+  // the freshest build rather than the render-time prop.
+  const liveRef = useRef(build);
+  liveRef.current = build;
+
+  function stepAttr(key: AttrKey, delta: number) {
+    const current = liveRef.current;
+    const currentCaps = attributeCaps(current);
+    const max = effectiveMax(key, currentCaps);
+    const target = clamp(current.attrs[key] + delta, BASE_ATTR, max);
+    if (target === current.attrs[key]) return;
+    if (delta > 0) {
+      const left = budget - spentBudget(current.position, current.attrs);
+      if (pointCost(current.position, key, current.attrs[key]) > left) return;
     }
-    onChange({ ...build, attrs: { ...build.attrs, [key]: target } });
+    const next = { ...current, attrs: { ...current.attrs, [key]: target } };
+    liveRef.current = next;
+    onChange(next);
   }
+
 
   const tabs: { id: typeof tab; label: string }[] = [
     { id: "body", label: "Body" },
@@ -125,6 +138,18 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
               />
             </div>
           </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2">
+            <p className={`text-xs ${ready ? "text-accent" : "text-muted-foreground"}`}>
+              {ready
+                ? "Build is a 99 overall — you can continue."
+                : `Build must reach 99 overall to continue · ${TARGET_OVR - ovr} to go`}
+            </p>
+            <Button size="sm" disabled={!ready} onClick={onBack}>
+              Continue
+            </Button>
+          </div>
+
 
           <div className="mt-4 grid grid-cols-3 gap-2 lg:hidden">
             {tabs.map((t) => (
@@ -254,10 +279,10 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                         label={a.label}
                         value={build.attrs[a.key]}
                         cap={caps[a.key]}
-                        max={effectiveMax(a.key, caps, build.attrs)}
+                        max={effectiveMax(a.key, caps)}
                         position={build.position}
                         remaining={remaining}
-                        onSet={(v) => setAttr(a.key, v)}
+                        onStep={(d) => stepAttr(a.key, d)}
                       />
                     ))}
                   </ul>

@@ -1,14 +1,19 @@
 import {
+  BADGE_CATEGORIES,
   badgeStates,
   buildIdentity,
   buildQuality,
   categoryRatings,
   overall,
-  poolStates,
-  attributeCaps,
   TARGET_OVR,
   type Build,
 } from "@/lib/builder";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const TIER_COLOR: Record<string, string> = {
   None: "text-muted-foreground",
@@ -16,7 +21,7 @@ const TIER_COLOR: Record<string, string> = {
   Silver: "text-foreground",
   Gold: "text-primary",
   Elite: "text-primary",
-  "Hall of Fame": "text-destructive",
+  Legendary: "text-destructive",
 };
 
 export function BuildSummary({
@@ -35,7 +40,6 @@ export function BuildSummary({
   const quality = buildQuality(build);
   const identity = buildIdentity(build);
   const badges = badgeStates(build.attrs);
-  const pools = poolStates(attributeCaps(build), build.attrs);
   const done = ovr >= TARGET_OVR;
 
   return (
@@ -55,7 +59,7 @@ export function BuildSummary({
         </div>
         <p className={`mt-2 text-sm ${done ? "text-accent" : "text-muted-foreground"}`}>
           {done
-            ? "99 OVR solved. Refine distribution to raise Build Quality."
+            ? "99 OVR reached. Refine distribution to raise Build Quality."
             : `${TARGET_OVR - ovr} OVR to go · ${Math.max(0, Math.round(budget - spent))} budget left`}
         </p>
       </section>
@@ -92,42 +96,51 @@ export function BuildSummary({
       </section>
 
       <section className="panel p-4">
-        <h3 className="mb-3 text-lg text-primary">Shared potential pools</h3>
-        <ul className="space-y-2">
-          {pools.map((p) => (
-            <li key={p.id}>
-              <div className="flex items-baseline justify-between text-sm">
-                <span>{p.label}</span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {p.used}/{p.capacity}
-                </span>
+        <h3 className="mb-1 text-lg text-primary">Badge access</h3>
+        <p className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Hover a badge for what it does
+        </p>
+        <TooltipProvider delayDuration={100}>
+          <div className="space-y-4">
+            {BADGE_CATEGORIES.map((cat) => (
+              <div key={cat}>
+                <h4 className="mb-2 border-b border-border pb-1 text-xs uppercase tracking-widest text-accent">
+                  {cat}
+                </h4>
+                <ul className="grid grid-cols-2 gap-2">
+                  {badges
+                    .filter((b) => b.category === cat)
+                    .map((b) => (
+                      <li key={b.id}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              title={b.desc}
+                              className="cursor-help rounded border border-border bg-secondary/40 px-2 py-1.5 transition-colors hover:border-primary"
+                            >
+                              <p className="truncate text-xs text-foreground">{b.label}</p>
+                              <p className={`text-sm font-semibold ${TIER_COLOR[b.tier]}`}>
+                                {b.tier}
+                              </p>
+                              {b.next != null && (
+                                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                                  next at {b.next}
+                                </p>
+                              )}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-64">
+                            <p className="text-xs font-semibold">{b.label}</p>
+                            <p className="text-xs text-muted-foreground">{b.desc}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </li>
+                    ))}
+                </ul>
               </div>
-              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
-                <div
-                  className="h-full rounded-full flame-bg"
-                  style={{ width: `${Math.min(100, (p.used / Math.max(p.capacity, 1)) * 100)}%` }}
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="panel p-4">
-        <h3 className="mb-3 text-lg text-primary">Badge access</h3>
-        <ul className="grid grid-cols-2 gap-2">
-          {badges.map((b) => (
-            <li key={b.key} className="rounded border border-border bg-secondary/40 px-2 py-1.5">
-              <p className="truncate text-xs text-foreground">{b.label}</p>
-              <p className={`text-sm font-semibold ${TIER_COLOR[b.tier]}`}>{b.tier}</p>
-              {b.next != null && (
-                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                  next at {b.next}
-                </p>
-              )}
-            </li>
-          ))}
-        </ul>
+            ))}
+          </div>
+        </TooltipProvider>
       </section>
 
       <section className="panel p-4">
