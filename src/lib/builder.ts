@@ -312,10 +312,9 @@ export function buildMath(body: Body): BuildMath {
 
   for (let step = 0; step < 4000; step++) {
     let best: { key: AttrKey; ratio: number; cost: number } | null = null;
-    const pools = poolStates(caps, attrs);
     for (const k of ATTR_KEYS) {
       if (attrs[k] >= caps[k]) continue;
-      if (pools.some((p) => p.attrs.includes(k) && p.used >= p.capacity)) continue;
+
       const c = pointCost(body.position, k, attrs[k]);
       const before = weightedComposite(body.position, attrs);
       attrs[k] += 1;
