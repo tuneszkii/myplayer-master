@@ -70,16 +70,26 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
     setBody({ position: id, height: clamp(build.height, p.minHeight, p.maxHeight) });
   }
 
-  function setAttr(key: AttrKey, value: number) {
-    const max = effectiveMax(key, caps, build.attrs);
-    const target = clamp(value, BASE_ATTR, max);
-    if (target > build.attrs[key]) {
-      let cost = 0;
-      for (let v = build.attrs[key]; v < target; v++) cost += pointCost(build.position, key, v);
-      if (cost > remaining) return;
+  // Held +/- buttons fire faster than React re-renders, so step from a ref of
+  // the freshest build rather than the render-time prop.
+  const liveRef = useRef(build);
+  liveRef.current = build;
+
+  function stepAttr(key: AttrKey, delta: number) {
+    const current = liveRef.current;
+    const currentCaps = attributeCaps(current);
+    const max = effectiveMax(key, currentCaps);
+    const target = clamp(current.attrs[key] + delta, BASE_ATTR, max);
+    if (target === current.attrs[key]) return;
+    if (delta > 0) {
+      const left = budget - spentBudget(current.position, current.attrs);
+      if (pointCost(current.position, key, current.attrs[key]) > left) return;
     }
-    onChange({ ...build, attrs: { ...build.attrs, [key]: target } });
+    const next = { ...current, attrs: { ...current.attrs, [key]: target } };
+    liveRef.current = next;
+    onChange(next);
   }
+
 
   const tabs: { id: typeof tab; label: string }[] = [
     { id: "body", label: "Body" },
