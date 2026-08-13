@@ -203,68 +203,17 @@ export function baseAttributes(): Attributes {
   return Object.fromEntries(ATTR_KEYS.map((k) => [k, BASE_ATTR])) as Attributes;
 }
 
-/* ---------------- shared potential pools ---------------- */
+/* ---------------- potential limits ---------------- */
 
-export interface PoolDef {
-  id: string;
-  label: string;
-  attrs: AttrKey[];
-  share: number; // fraction of members' combined headroom you may actually buy
+/**
+ * Highest value an attribute can currently be raised to. Only the body's hard
+ * potential cap applies — there are no category maximums, so the position
+ * weighting (cost) is what limits how far a build can be pushed.
+ */
+export function effectiveMax(key: AttrKey, caps: Record<AttrKey, number>): number {
+  return Math.max(BASE_ATTR, caps[key]);
 }
 
-export const POOLS: PoolDef[] = [
-  {
-    id: "athletic",
-    label: "Athletic Finishing",
-    attrs: ["drivingDunk", "drivingLayup", "vertical", "speed", "strength"],
-    share: 0.6,
-  },
-  {
-    id: "creation",
-    label: "Shot Creation",
-    attrs: ["threePoint", "midRange", "freeThrow", "ballHandle", "speedWithBall", "passAccuracy"],
-    share: 0.58,
-  },
-  {
-    id: "interior",
-    label: "Interior Presence",
-    attrs: ["standingDunk", "postControl", "closeShot", "interiorDefense", "block", "offensiveRebound", "defensiveRebound", "strength"],
-    share: 0.58,
-  },
-  {
-    id: "perimeter",
-    label: "Perimeter Defense",
-    attrs: ["perimeterDefense", "steal", "agility", "speed"],
-    share: 0.62,
-  },
-];
-
-export interface PoolState {
-  id: string;
-  label: string;
-  attrs: AttrKey[];
-  used: number;
-  capacity: number;
-}
-
-export function poolStates(caps: Record<AttrKey, number>, attrs: Attributes): PoolState[] {
-  return POOLS.map((p) => {
-    const headroom = p.attrs.reduce((s, k) => s + Math.max(0, caps[k] - BASE_ATTR), 0);
-    const used = p.attrs.reduce((s, k) => s + Math.max(0, attrs[k] - BASE_ATTR), 0);
-    return { id: p.id, label: p.label, attrs: p.attrs, used, capacity: Math.round(headroom * p.share) };
-  });
-}
-
-/** Highest value an attribute can currently be raised to, given caps + pools. */
-export function effectiveMax(key: AttrKey, caps: Record<AttrKey, number>, attrs: Attributes): number {
-  let max = caps[key];
-  for (const p of poolStates(caps, attrs)) {
-    if (!p.attrs.includes(key)) continue;
-    const roomInPool = p.capacity - p.used;
-    max = Math.min(max, attrs[key] + Math.max(0, roomInPool));
-  }
-  return Math.max(BASE_ATTR, max);
-}
 
 /* ---------------- nonlinear cost ---------------- */
 
