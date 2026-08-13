@@ -41,7 +41,7 @@ function defaultBuild(): Build {
   return {
     position: pos.id,
     height,
-    weight: Math.round((weightRange(height).min + weightRange(height).max) / 2),
+    weight: Math.round((weightRange(height, pos.id).min + weightRange(height, pos.id).max) / 2),
     wingspan: wingspanRange(height).min + 5,
     hand: "Right",
     attrs: baseAttributes(),
