@@ -477,11 +477,22 @@ export function buildQuality(build: Build): Quality {
   const efficiency = clamp(Math.round(((avgWeight - 0.75) / 0.5) * 100), 0, 100);
 
   const badges = badgeStates(attrs);
-  const badgePts = badges.reduce((s, b) => {
-    const tierScore = { None: 0, Bronze: 1, Silver: 2, Gold: 3, Elite: 4, "Hall of Fame": 5 }[b.tier];
-    return s + tierScore * w[b.key];
-  }, 0);
-  const badgeScore = clamp(Math.round((badgePts / 26) * 100), 0, 100);
+  const TIER_SCORE: Record<BadgeTier, number> = {
+    None: 0,
+    Bronze: 1,
+    Silver: 2,
+    Gold: 3,
+    Elite: 4,
+    Legendary: 5,
+  };
+  let badgePts = 0;
+  let badgeMax = 0;
+  for (const b of badges) {
+    badgePts += TIER_SCORE[b.tier] * w[b.key];
+    badgeMax += 5 * w[b.key];
+  }
+  const badgeScore = clamp(Math.round((badgePts / Math.max(badgeMax, 1)) * 100), 0, 100);
+
 
   const keyAttrs = ATTR_KEYS.filter((k) => w[k] >= 1.1);
   const fitRaw = keyAttrs.reduce((s, k) => s + attrs[k] / Math.max(caps[k], 1), 0) / Math.max(keyAttrs.length, 1);
