@@ -37,7 +37,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 export function BuilderScreen({ save, build, onChange, onBack }: Props) {
   const [tab, setTab] = useState<"body" | "attrs" | "summary">("body");
   const position = POSITIONS.find((p) => p.id === build.position)!;
-  const wRange = weightRange(build.height);
+  const wRange = weightRange(build.height, build.position);
   const wsRange = wingspanRange(build.height);
 
   const math = useMemo(
@@ -58,7 +58,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
 
   function setBody(patch: Partial<Build>) {
     const next = { ...build, ...patch };
-    const w = weightRange(next.height);
+    const w = weightRange(next.height, next.position);
     const ws = wingspanRange(next.height);
     next.weight = clamp(next.weight, w.min, w.max);
     next.wingspan = clamp(next.wingspan, ws.min, ws.max);
