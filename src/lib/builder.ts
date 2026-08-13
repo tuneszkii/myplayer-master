@@ -180,7 +180,7 @@ export interface Body {
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
 export function attributeCaps(body: Body): Record<AttrKey, number> {
-  const { min: wMin, max: wMax } = weightRange(body.height);
+  const { min: wMin, max: wMax } = weightRange(body.height, PositionId);
   const wMid = (wMin + wMax) / 2;
   const dW = body.weight - wMid;
   const dWing = body.wingspan - body.height;
