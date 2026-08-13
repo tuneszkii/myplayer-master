@@ -16,6 +16,7 @@ import {
   pointCost,
   POSITIONS,
   spentBudget,
+  TARGET_OVR,
   buildMath,
   weightRange,
   wingspanRange,
@@ -56,6 +57,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
   const spent = useMemo(() => spentBudget(build.position, build.attrs), [build.position, build.attrs]);
   const remaining = budget - spent;
   const ovr = overall(build.position, build.attrs, math.pivot);
+  const ready = ovr >= TARGET_OVR;
 
   function setBody(patch: Partial<Build>) {
     const next = { ...build, ...patch };
