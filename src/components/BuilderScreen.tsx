@@ -137,6 +137,18 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
             </div>
           </div>
 
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2">
+            <p className={`text-xs ${ready ? "text-accent" : "text-muted-foreground"}`}>
+              {ready
+                ? "Build is a 99 overall — you can continue."
+                : `Build must reach 99 overall to continue · ${TARGET_OVR - ovr} to go`}
+            </p>
+            <Button size="sm" disabled={!ready} onClick={onBack}>
+              Continue
+            </Button>
+          </div>
+
+
           <div className="mt-4 grid grid-cols-3 gap-2 lg:hidden">
             {tabs.map((t) => (
               <button
