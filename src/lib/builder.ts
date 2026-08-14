@@ -207,17 +207,67 @@ export function baseAttributes(): Attributes {
   return Object.fromEntries(ATTR_KEYS.map((k) => [k, BASE_ATTR])) as Attributes;
 }
 
-/* ---------------- potential limits ---------------- */
-
-/** Attribute dependencies: value ≤ value of the gating attribute. */
-export const ATTR_DEPENDENCIES: Partial<Record<AttrKey, AttrKey>> = {
-  speedWithBall: "speed",
-};
+/* ---------------- attribute connections + potential limits ---------------- */
 
 /**
- * Highest value an attribute can currently be raised to: the body's hard
- * potential cap, further limited by any gating attribute (Speed With Ball can
- * never exceed Speed).
+ * Attribute relationships inspired by 2K-style builder interactions.
+ *
+ * These are soft connections rather than one-to-one hard gates. A connected
+ * attribute can still be strong on its own, but pushing it extremely high
+ * requires supporting attributes to be developed as well.
+ */
+export interface AttrConnection {
+  key: AttrKey;
+  supports: AttrKey[];
+  supportRatio: number;
+  floor: number;
+}
+
+export const ATTR_CONNECTIONS: AttrConnection[] = [
+  // Playmaking
+  { key: "speedWithBall", supports: ["speed", "ballHandle"], supportRatio: 1.00, floor: 55 },
+
+  // Finishing
+  { key: "drivingDunk", supports: ["vertical", "strength"], supportRatio: 1.08, floor: 70 },
+  { key: "drivingLayup", supports: ["speed", "ballHandle"], supportRatio: 1.05, floor: 65 },
+  { key: "standingDunk", supports: ["strength", "vertical"], supportRatio: 1.10, floor: 55 },
+  { key: "postControl", supports: ["strength", "closeShot"], supportRatio: 1.05, floor: 55 },
+
+  // Shooting
+  { key: "threePoint", supports: ["midRange"], supportRatio: 1.10, floor: 65 },
+  { key: "midRange", supports: ["threePoint"], supportRatio: 1.10, floor: 65 },
+
+  // Defense
+  { key: "steal", supports: ["perimeterDefense", "agility"], supportRatio: 1.05, floor: 60 },
+  { key: "perimeterDefense", supports: ["agility", "steal"], supportRatio: 1.05, floor: 60 },
+  { key: "block", supports: ["interiorDefense", "vertical"], supportRatio: 1.10, floor: 60 },
+  { key: "interiorDefense", supports: ["strength", "block"], supportRatio: 1.05, floor: 60 },
+
+  // Rebounding
+  { key: "defensiveRebound", supports: ["strength", "vertical"], supportRatio: 1.10, floor: 55 },
+  { key: "offensiveRebound", supports: ["strength", "vertical"], supportRatio: 1.10, floor: 50 },
+];
+
+function connectionFor(key: AttrKey) {
+  return ATTR_CONNECTIONS.find((c) => c.key === key);
+}
+
+function connectionMax(key: AttrKey, attrs: Attributes) {
+  const connection = connectionFor(key);
+  if (!connection) return Infinity;
+
+  const average =
+    connection.supports.reduce((sum, support) => sum + attrs[support], 0) /
+    connection.supports.length;
+
+  return Math.max(
+    connection.floor,
+    Math.round(average * connection.supportRatio),
+  );
+}
+
+/**
+ * Highest legal value an attribute can currently reach.
  */
 export function effectiveMax(
   key: AttrKey,
@@ -225,27 +275,42 @@ export function effectiveMax(
   attrs?: Attributes,
 ): number {
   let max = caps[key];
-  const gate = ATTR_DEPENDENCIES[key];
-  if (gate && attrs) max = Math.min(max, attrs[gate]);
-  return Math.max(BASE_ATTR, max);
+
+  if (attrs) {
+    max = Math.min(max, connectionMax(key, attrs));
+  }
+
+  return Math.max(BASE_ATTR, Math.round(max));
 }
 
-/** Attributes that must obey `key` as a gate (inverse of ATTR_DEPENDENCIES). */
-const DEPENDENTS: Partial<Record<AttrKey, AttrKey[]>> = {};
-for (const [dep, gate] of Object.entries(ATTR_DEPENDENCIES) as [AttrKey, AttrKey][]) {
-  (DEPENDENTS[gate] ??= []).push(dep);
-}
-
-/** Lowering a gate drags its dependents down with it. */
+/**
+ * Repeatedly enforce soft attribute connections so lowering a supporting stat
+ * also lowers a dependent stat when necessary.
+ */
 export function enforceDependencies(attrs: Attributes): Attributes {
   const out = { ...attrs };
-  for (const [dep, gate] of Object.entries(ATTR_DEPENDENCIES) as [AttrKey, AttrKey][]) {
-    out[dep] = Math.min(out[dep], out[gate]);
+
+  for (let pass = 0; pass < 6; pass++) {
+    let changed = false;
+
+    for (const connection of ATTR_CONNECTIONS) {
+      const max = connectionMax(connection.key, out);
+
+      if (out[connection.key] > max) {
+        out[connection.key] = max;
+        changed = true;
+      }
+    }
+
+    if (!changed) break;
   }
+
   return out;
 }
 
-export { DEPENDENTS as ATTR_DEPENDENTS };
+/* Compatibility exports for code that still references the old names. */
+export const ATTR_DEPENDENCIES: Partial<Record<AttrKey, AttrKey>> = {};
+export const ATTR_DEPENDENTS: Partial<Record<AttrKey, AttrKey[]>> = {};
 
 /* ---------------- nonlinear cost ---------------- */
 
@@ -406,8 +471,11 @@ export function categoryRatings(
 }
 
 /**
- * Elite ratings are worth disproportionately more than average ones, so a build
- * with a real strength out-rates a build that is merely well-rounded.
+ * Converts an attribute into its OVR contribution.
+ *
+ * The curve rewards high attributes without making low/irrelevant attributes
+ * destroy the overall rating. This is intentionally less aggressive than the
+ * previous 1.30 curve because the builder should recognize specialized builds.
  */
 function impact(value: number) {
   const t = clamp(
@@ -418,8 +486,7 @@ function impact(value: number) {
 
   return (
     BASE_ATTR +
-    (99 - BASE_ATTR) *
-      Math.pow(t, 1.30)
+    (99 - BASE_ATTR) * Math.pow(t, 1.12)
   );
 }
 
@@ -437,57 +504,62 @@ export function weightedComposite(
     den += w[k];
   }
 
-  return num / den;
+  return den > 0 ? num / den : BASE_ATTR;
 }
-
-const REFERENCE_ATTRIBUTE_POINTS = 860;
-const GLOBAL_BUDGET_MULTIPLIER = 1.00;
-const POSITION_BUDGET_MULTIPLIER: Record<PositionId, number> = {
-  PG: 1.00,
-  SG: 1.00,
-  SF: 1.01,
-  PF: 1.02,
-  C: 1.03,
-};
-
-function bodyBudgetMultiplier(body: Body) {
-  const heightDelta = body.height - 78;
-
-  /*
-   * Every inch away from the reference height changes the budget
-   * by only 0.75%.
-   *
-   * This prevents body size from completely determining build quality.
-   */
-  const heightAdjustment =
-    1 - heightDelta * 0.0075;
-
-  /*
-   * Wingspan has a smaller effect.
-   */
-  const wingDelta =
-    body.wingspan - body.height;
-
-  const wingAdjustment =
-    1 - Math.max(wingDelta, 0) * 0.0025;
-
-  return clamp(
-    heightAdjustment * wingAdjustment,
-    0.94,
-    1.04,
-  );
-}
-
 
 /**
- * 99 OVR maps to a weighted-category composite of `pivot`, which is solved per
- * body: it sits between the worst and the best composite this body can buy with
- * its budget, so 99 demands a real identity without ever becoming unreachable.
+ * Calculates OVR directly from the actual attribute profile.
+ *
+ * OVR is deliberately independent of the build budget. The budget controls
+ * what the user can afford; OVR describes what they actually built.
+ *
+ * A small elite bonus rewards genuine specialization while a light weakness
+ * penalty prevents a build with several 90s and everything else at 25 from
+ * immediately becoming a 99.
  */
-export function overall(position: PositionId, attrs: Attributes, pivot: number) {
-  const composite = weightedComposite(position, attrs);
-  const progress = (composite - BASE_ATTR) / Math.max(pivot - BASE_ATTR, 1);
-  return clamp(Math.round(BASE_ATTR + (TARGET_OVR - BASE_ATTR) * progress), BASE_ATTR, TARGET_OVR);
+export function overall(
+  position: PositionId,
+  attrs: Attributes,
+  _pivot?: number,
+) {
+  const w = POSITION_WEIGHTS[position];
+
+  let weighted = 0;
+  let totalWeight = 0;
+
+  for (const k of ATTR_KEYS) {
+    weighted += impact(attrs[k]) * w[k];
+    totalWeight += w[k];
+  }
+
+  const baseComposite =
+    totalWeight > 0
+      ? weighted / totalWeight
+      : BASE_ATTR;
+
+  const eliteValues = ATTR_KEYS
+    .map((k) => attrs[k])
+    .filter((v) => v >= 85)
+    .sort((a, b) => b - a);
+
+  let eliteBonus = 0;
+
+  for (let i = 0; i < eliteValues.length; i++) {
+    const strength = Math.max(0, eliteValues[i]! - 84);
+    const diminishing = 1 / (1 + i * 0.20);
+    eliteBonus += strength * 0.035 * diminishing;
+  }
+
+  const weakAttrs = ATTR_KEYS.filter((k) => attrs[k] < 50);
+  const weaknessPenalty = weakAttrs.reduce((sum, k) => {
+    return sum + (50 - attrs[k]) * 0.025;
+  }, 0);
+
+  return clamp(
+    Math.round(baseComposite + eliteBonus - weaknessPenalty),
+    BASE_ATTR,
+    TARGET_OVR,
+  );
 }
 
 function referenceAttributes(
@@ -650,7 +722,7 @@ export function displayOverall(
     math.pivot,
   );
 
-  const remaining = math.budget - spent;
+  const remaining = Math.max(0, math.budget - spent);
 
   const next = cheapestNextCost(
     build.position,
@@ -658,21 +730,26 @@ export function displayOverall(
     math.caps,
   );
 
+  /*
+   * A build is exhausted only when there is literally no budget remaining,
+   * or there are no legal upgrades left at all.
+   *
+   * Crucially, an expensive next point that the player cannot currently afford
+   * does NOT turn the build into a 99.
+   */
   const exhausted =
-    next == null ||
-    next > remaining + 0.01;
+    remaining <= 0.001 ||
+    next == null;
 
   /*
-   * Only show 99 when the player has genuinely exhausted
-   * the legal budget.
+   * Hard safety rule:
    *
-   * This prevents an unfinished build from being displayed
-   * as 99 simply because of rounding.
+   * If the player still has any budget left, 99 can never be displayed.
+   * This eliminates the previous "99 OVR with points remaining" bug.
    */
-  const ovr =
-    exhausted && raw >= 98
-      ? TARGET_OVR
-      : raw;
+  const ovr = exhausted
+    ? raw
+    : Math.min(raw, TARGET_OVR - 1);
 
   return {
     ovr,
@@ -721,57 +798,20 @@ function walk(body: Body, caps: Record<AttrKey, number>, mode: "best" | "worst",
   return path;
 }
 
-function calculatePivot(
-  body: Body,
-  caps: Record<AttrKey, number>,
-) {
-  const reference = referenceAttributes(
-    body.position,
-  );
-
-  const clamped = { ...reference };
-
-  for (const k of ATTR_KEYS) {
-    clamped[k] = clamp(
-      clamped[k],
-      BASE_ATTR,
-      caps[k],
-    );
-  }
-
-  const legal = enforceDependencies(clamped);
-
-  return weightedComposite(
-    body.position,
-    legal,
-  );
-}
-
 /**
- * The efficient walk gives the ceiling of this body and the cost of an ideal
- * 99. The wasteful walk gives the floor of what the same budget can produce.
- * The 99 pivot sits between them, so specialization is rewarded but a sane
- * spender is never locked out of 99.
+ * OVR no longer depends on a body-specific pivot. Keep the pivot field for
+ * compatibility with existing UI/state code.
  */
-export function buildMath(
-  body: Body,
-): BuildMath {
+export function buildMath(body: Body): BuildMath {
   const caps = attributeCaps(body);
-
   const budget = calculateBudget(body);
-
-  const pivot = calculatePivot(
-    body,
-    caps,
-  );
 
   return {
     caps,
-    pivot,
+    pivot: TARGET_OVR,
     budget,
   };
 }
-
 
 
 /* ---------------- badges ---------------- */
@@ -1025,5 +1065,3 @@ export function clampAttrsToBody(build: Build): Build {
   for (const k of ATTR_KEYS) attrs[k] = clamp(attrs[k] ?? BASE_ATTR, BASE_ATTR, caps[k]);
   return { ...build, attrs: enforceDependencies(attrs) };
 }
-
-
