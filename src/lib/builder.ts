@@ -11,10 +11,10 @@ export interface Position {
 
 export const POSITIONS: Position[] = [
   { id: "PG", name: "Point Guard", blurb: "-", minHeight: 67, maxHeight: 78 },
-  { id: "SG", name: "Shooting Guard", blurb: "-", minHeight: 75, maxHeight: 81 },
+  { id: "SG", name: "Shooting Guard", blurb: "-", minHeight: 75, maxHeight: 80 },
   { id: "SF", name: "Small Forward", blurb: "-", minHeight: 78, maxHeight: 82 },
   { id: "PF", name: "Power Forward", blurb: "-", minHeight: 80, maxHeight: 83 },
-  { id: "C", name: "Center", blurb: "-", minHeight: 81, maxHeight: 87 },
+  { id: "C", name: "Center", blurb: "-", minHeight: 81, maxHeight: 88 },
 ];
 
 export function formatHeight(inches: number) {
