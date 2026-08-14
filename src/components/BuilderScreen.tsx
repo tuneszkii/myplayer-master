@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { RangeControl } from "@/components/RangeControl";
 import { AttributeRow } from "@/components/AttributeRow";
@@ -10,7 +10,9 @@ import {
   CATEGORIES,
   baseAttributes,
   clampAttrsToBody,
+  displayOverall,
   effectiveMax,
+  enforceDependencies,
   formatHeight,
   overall,
   pointCost,
@@ -56,8 +58,29 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
   const budget = math.budget;
   const spent = useMemo(() => spentBudget(build.position, build.attrs), [build.position, build.attrs]);
   const remaining = budget - spent;
-  const ovr = overall(build.position, build.attrs, math.pivot);
+  const { ovr, exhausted } = displayOverall(build, math, spent);
   const ready = ovr >= TARGET_OVR;
+
+  // Show how the body/position change moved every potential cap.
+  const prevCapsRef = useRef(caps);
+  const bodyKey = `${build.position}|${build.height}|${build.weight}|${build.wingspan}`;
+  const prevBodyKey = useRef(bodyKey);
+  const [capDeltas, setCapDeltas] = useState<Partial<Record<AttrKey, number>>>({});
+
+  useEffect(() => {
+    if (prevBodyKey.current === bodyKey) return;
+    const prev = prevCapsRef.current;
+    const deltas: Partial<Record<AttrKey, number>> = {};
+    for (const k of Object.keys(caps) as AttrKey[]) {
+      const d = caps[k] - (prev[k] ?? caps[k]);
+      if (d !== 0) deltas[k] = d;
+    }
+    prevCapsRef.current = caps;
+    prevBodyKey.current = bodyKey;
+    setCapDeltas(deltas);
+    const t = setTimeout(() => setCapDeltas({}), 2600);
+    return () => clearTimeout(t);
+  }, [bodyKey, caps]);
 
   function setBody(patch: Partial<Build>) {
     const next = { ...build, ...patch };
@@ -81,14 +104,17 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
   function stepAttr(key: AttrKey, delta: number) {
     const current = liveRef.current;
     const currentCaps = attributeCaps(current);
-    const max = effectiveMax(key, currentCaps);
+    const max = effectiveMax(key, currentCaps, current.attrs);
     const target = clamp(current.attrs[key] + delta, BASE_ATTR, max);
     if (target === current.attrs[key]) return;
     if (delta > 0) {
       const left = budget - spentBudget(current.position, current.attrs);
       if (pointCost(current.position, key, current.attrs[key]) > left) return;
     }
-    const next = { ...current, attrs: { ...current.attrs, [key]: target } };
+    const next = {
+      ...current,
+      attrs: enforceDependencies({ ...current.attrs, [key]: target }),
+    };
     liveRef.current = next;
     onChange(next);
   }
@@ -142,7 +168,9 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2">
             <p className={`text-xs ${ready ? "text-accent" : "text-muted-foreground"}`}>
               {ready
-                ? "Build is a 99 overall — you can continue."
+                ? exhausted
+                  ? "Budget is fully spent — build locked in at 99 overall."
+                  : "Build is a 99 overall — you can continue."
                 : `Build must reach 99 overall to continue · ${TARGET_OVR - ovr} to go`}
             </p>
             <Button size="sm" disabled={!ready} onClick={onBack}>
@@ -279,7 +307,8 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                         label={a.label}
                         value={build.attrs[a.key]}
                         cap={caps[a.key]}
-                        max={effectiveMax(a.key, caps)}
+                        max={effectiveMax(a.key, caps, build.attrs)}
+                        capDelta={capDeltas[a.key]}
                         position={build.position}
                         remaining={remaining}
                         onStep={(d) => stepAttr(a.key, d)}
