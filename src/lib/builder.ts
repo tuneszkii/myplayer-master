@@ -260,8 +260,8 @@ export function tierCost(value: number) {
 export function eliteTax(value: number) {
   if (value <= 79) return 1;
   if (value <= 84) return 1.4;
-  if (value <= 89) return 2;
-  if (value <= 94) return 3.5;
+  if (value <= 89) return 2.4;
+  if (value <= 94) return 4.5;
   if (value <= 97) return 5;
   return 8;
 }
@@ -438,7 +438,7 @@ export function buildMath(body: Body): BuildMath {
   const caps = attributeCaps(body);
   const best = walk(body, caps, "best");
   const ceiling = best[best.length - 1]!.composite;
-  const target = BASE_ATTR + (ceiling - BASE_ATTR) * 0.58;
+  const target = BASE_ATTR + (ceiling - BASE_ATTR) * 0.5;
   const needed = best.find((p) => p.composite >= target)?.cost ?? best[best.length - 1]!.cost;
   const budget = Math.round(needed * 1.06);
 
