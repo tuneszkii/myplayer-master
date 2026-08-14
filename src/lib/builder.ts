@@ -251,23 +251,23 @@ export { DEPENDENTS as ATTR_DEPENDENTS };
 
 /** Base progressive cost of the point taking an attribute from `value` to `value + 1`. */
 export function tierCost(value: number) {
-  if (value <= 69) return 1.0;
-  if (value <= 79) return 1.25;
-  if (value <= 84) return 1.5;
-  if (value <= 89) return 2.0;
-  if (value <= 94) return 3.0;
-  if (value <= 97) return 4.0;
-  return 6.0;
+  if (value <= 69) return 1.00;
+  if (value <= 79) return 1.15;
+  if (value <= 84) return 1.35;
+  if (value <= 89) return 1.65;
+  if (value <= 94) return 2.25;
+  if (value <= 97) return 3.25;
+  return 4.50;
 }
 
 /** Extra multiplier applied to every point above 89 — the "90+ tax". */
 export function eliteTax(value: number) {
-  if (value <= 79) return 1;
-  if (value <= 84) return 1.4;
-  if (value <= 89) return 2.4;
-  if (value <= 94) return 4.5;
-  if (value <= 97) return 5;
-  return 8;
+  if (value <= 79) return 1.00;
+  if (value <= 84) return 1.05;
+  if (value <= 89) return 1.15;
+  if (value <= 94) return 1.45;
+  if (value <= 97) return 1.75;
+  return 2.25;
 }
 
 /**
@@ -275,30 +275,57 @@ export function eliteTax(value: number) {
  * so stacking several of them is what really drains the budget.
  */
 const PREMIUM_ATTRS: Partial<Record<AttrKey, number>> = {
-  threePoint: 1.3,
-  midRange: 1.15,
-  drivingDunk: 1.3,
-  ballHandle: 1.25,
-  speedWithBall: 1.25,
-  perimeterDefense: 1.2,
-  steal: 1.15,
-  speed: 1.15,
-  block: 1.15,
-  interiorDefense: 1.1,
-  standingDunk: 1.1,
+  threePoint: 1.12,
+  midRange: 1.05,
+
+  drivingDunk: 1.10,
+
+  ballHandle: 1.10,
+  speedWithBall: 1.08,
+
+  perimeterDefense: 1.08,
+  steal: 1.05,
+
+  speed: 1.05,
+  agility: 1.05,
+
+  block: 1.05,
+  interiorDefense: 1.05,
+
+  standingDunk: 1.05,
 };
 
 /** Cost of the single point taking `key` from `from` to `from + 1`. */
-export function pointCost(position: PositionId, key: AttrKey, from: number) {
-  const premium = from >= 89 ? (PREMIUM_ATTRS[key] ?? 1) : 1;
-  return tierCost(from) * eliteTax(from) * POSITION_WEIGHTS[position][key] * premium;
+export function pointCost(
+  position: PositionId,
+  key: AttrKey,
+  from: number,
+) {
+  const premium =
+    from >= 89
+      ? (PREMIUM_ATTRS[key] ?? 1)
+      : 1;
+
+  return (
+    tierCost(from) *
+    eliteTax(from) *
+    POSITION_WEIGHTS[position][key] *
+    premium
+  );
 }
 
-export function spentBudget(position: PositionId, attrs: Attributes) {
+export function spentBudget(
+  position: PositionId,
+  attrs: Attributes,
+) {
   let total = 0;
+
   for (const k of ATTR_KEYS) {
-    for (let v = BASE_ATTR; v < attrs[k]; v++) total += pointCost(position, k, v);
+    for (let v = BASE_ATTR; v < attrs[k]; v++) {
+      total += pointCost(position, k, v);
+    }
   }
+
   return total;
 }
 
@@ -309,11 +336,23 @@ export function cheapestNextCost(
   caps: Record<AttrKey, number>,
 ) {
   let best: number | null = null;
+
   for (const k of ATTR_KEYS) {
-    if (attrs[k] >= effectiveMax(k, caps, attrs)) continue;
-    const c = pointCost(position, k, attrs[k]);
-    if (best == null || c < best) best = c;
+    const max = effectiveMax(k, caps, attrs);
+
+    if (attrs[k] >= max) continue;
+
+    const cost = pointCost(
+      position,
+      k,
+      attrs[k],
+    );
+
+    if (best == null || cost < best) {
+      best = cost;
+    }
   }
+
   return best;
 }
 
@@ -328,18 +367,48 @@ export interface CategoryRating {
 
 function categoryWeights(position: PositionId) {
   const w = POSITION_WEIGHTS[position];
+
+  const raw = CATEGORIES.map((c) =>
+    c.attrs.reduce((s, k) => s + w[k], 0) /
+    c.attrs.length,
+  );
+
+  const sum = raw.reduce((s, v) => s + v, 0);
+
+  return raw.map((v) => v / sum);
+}
+
+function categoryWeights(position: PositionId) {
+  const w = POSITION_WEIGHTS[position];
   const raw = CATEGORIES.map((c) => c.attrs.reduce((s, k) => s + w[k], 0) / c.attrs.length);
   const sum = raw.reduce((s, v) => s + v, 0);
   return raw.map((v) => v / sum);
 }
 
-export function categoryRatings(position: PositionId, attrs: Attributes): CategoryRating[] {
+export function categoryRatings(
+  position: PositionId,
+  attrs: Attributes,
+): CategoryRating[] {
   const w = POSITION_WEIGHTS[position];
   const cw = categoryWeights(position);
+
   return CATEGORIES.map((c, i) => {
-    const wsum = c.attrs.reduce((s, k) => s + w[k], 0);
-    const rating = c.attrs.reduce((s, k) => s + attrs[k] * w[k], 0) / wsum;
-    return { id: c.id, rating: Math.round(rating), weight: cw[i]! };
+    const wsum = c.attrs.reduce(
+      (s, k) => s + w[k],
+      0,
+    );
+
+    const rating =
+      c.attrs.reduce(
+        (s, k) => s + attrs[k] * w[k],
+        0,
+      ) / wsum;
+
+    return {
+      id: c.id,
+      rating: Math.round(rating),
+      weight: cw[i]!,
+    };
   });
 }
 
@@ -348,19 +417,72 @@ export function categoryRatings(position: PositionId, attrs: Attributes): Catego
  * with a real strength out-rates a build that is merely well-rounded.
  */
 function impact(value: number) {
-  const t = clamp((value - BASE_ATTR) / (99 - BASE_ATTR), 0, 1);
-  return BASE_ATTR + (99 - BASE_ATTR) * Math.pow(t, 1.45);
+  const t = clamp(
+    (value - BASE_ATTR) / (99 - BASE_ATTR),
+    0,
+    1,
+  );
+
+  return (
+    BASE_ATTR +
+    (99 - BASE_ATTR) *
+      Math.pow(t, 1.30)
+  );
 }
 
-export function weightedComposite(position: PositionId, attrs: Attributes) {
+export function weightedComposite(
+  position: PositionId,
+  attrs: Attributes,
+) {
   const w = POSITION_WEIGHTS[position];
+
   let num = 0;
   let den = 0;
+
   for (const k of ATTR_KEYS) {
     num += impact(attrs[k]) * w[k];
     den += w[k];
   }
+
   return num / den;
+}
+
+const REFERENCE_ATTRIBUTE_POINTS = 860;
+const GLOBAL_BUDGET_MULTIPLIER = 1.00;
+const POSITION_BUDGET_MULTIPLIER: Record<PositionId, number> = {
+  PG: 1.00,
+  SG: 1.00,
+  SF: 1.01,
+  PF: 1.02,
+  C: 1.03,
+};
+
+function bodyBudgetMultiplier(body: Body) {
+  const heightDelta = body.height - 78;
+
+  /*
+   * Every inch away from the reference height changes the budget
+   * by only 0.75%.
+   *
+   * This prevents body size from completely determining build quality.
+   */
+  const heightAdjustment =
+    1 - heightDelta * 0.0075;
+
+  /*
+   * Wingspan has a smaller effect.
+   */
+  const wingDelta =
+    body.wingspan - body.height;
+
+  const wingAdjustment =
+    1 - Math.max(wingDelta, 0) * 0.0025;
+
+  return clamp(
+    heightAdjustment * wingAdjustment,
+    0.94,
+    1.04,
+  );
 }
 
 
@@ -375,6 +497,150 @@ export function overall(position: PositionId, attrs: Attributes, pivot: number) 
   return clamp(Math.round(BASE_ATTR + (TARGET_OVR - BASE_ATTR) * progress), BASE_ATTR, TARGET_OVR);
 }
 
+function referenceAttributes(
+  position: PositionId,
+): Attributes {
+  const attrs = baseAttributes();
+
+  /*
+   * Position-neutral starting template.
+   *
+   * These values represent a good overall build rather than
+   * an all-around 90+ build.
+   */
+  const template: Partial<Record<AttrKey, number>> = {
+    closeShot: 70,
+    drivingLayup: 75,
+    drivingDunk: 87,
+    standingDunk: 40,
+    postControl: 35,
+
+    midRange: 79,
+    threePoint: 88,
+    freeThrow: 80,
+
+    passAccuracy: 76,
+    ballHandle: 86,
+    speedWithBall: 75,
+
+    interiorDefense: 68,
+    perimeterDefense: 85,
+    steal: 79,
+    block: 60,
+
+    offensiveRebound: 45,
+    defensiveRebound: 65,
+
+    speed: 85,
+    agility: 85,
+    strength: 65,
+    vertical: 75,
+  };
+
+  for (const k of ATTR_KEYS) {
+    if (template[k] != null) {
+      attrs[k] = template[k]!;
+    }
+  }
+
+  /*
+   * Slight position normalization.
+   *
+   * We don't want the reference build to be identical for every
+   * position, but we also don't want the budget to be wildly
+   * different between positions.
+   */
+  if (position === "PG") {
+    attrs.passAccuracy += 2;
+    attrs.ballHandle += 2;
+    attrs.speedWithBall += 2;
+    attrs.defensiveRebound -= 3;
+  }
+
+  if (position === "SG") {
+    attrs.threePoint += 1;
+    attrs.drivingDunk += 1;
+    attrs.perimeterDefense += 1;
+  }
+
+  if (position === "SF") {
+    attrs.interiorDefense += 3;
+    attrs.defensiveRebound += 3;
+    attrs.strength += 3;
+    attrs.ballHandle -= 2;
+  }
+
+  if (position === "PF") {
+    attrs.interiorDefense += 6;
+    attrs.block += 6;
+    attrs.defensiveRebound += 8;
+    attrs.strength += 8;
+
+    attrs.ballHandle -= 8;
+    attrs.speedWithBall -= 8;
+    attrs.speed -= 4;
+  }
+
+  if (position === "C") {
+    attrs.interiorDefense += 10;
+    attrs.block += 10;
+    attrs.defensiveRebound += 12;
+    attrs.offensiveRebound += 8;
+    attrs.strength += 10;
+    attrs.standingDunk += 15;
+
+    attrs.ballHandle -= 15;
+    attrs.speedWithBall -= 15;
+    attrs.speed -= 8;
+    attrs.agility -= 8;
+  }
+
+  return enforceDependencies(attrs);
+}
+
+function referenceBudget(body: Body) {
+  const caps = attributeCaps(body);
+  let attrs = referenceAttributes(body.position);
+
+  /*
+   * Clamp the reference build to the body's actual caps.
+   */
+  for (const k of ATTR_KEYS) {
+    attrs[k] = clamp(
+      attrs[k],
+      BASE_ATTR,
+      caps[k],
+    );
+  }
+
+  attrs = enforceDependencies(attrs);
+
+  return spentBudget(
+    body.position,
+    attrs,
+  );
+}
+
+const BUILD_FINISH_MARGIN = 1.035;
+
+function calculateBudget(body: Body) {
+  const base = referenceBudget(body);
+
+  const bodyModifier =
+    bodyBudgetMultiplier(body);
+
+  const positionModifier =
+    POSITION_BUDGET_MULTIPLIER[body.position];
+
+  return Math.round(
+    base *
+      GLOBAL_BUDGET_MULTIPLIER *
+      bodyModifier *
+      positionModifier *
+      BUILD_FINISH_MARGIN,
+  );
+}
+
 /**
  * OVR as shown to the player. Safety valve: once the remaining budget can no
  * longer buy a single legal point, the build is finished by definition, so it
@@ -385,10 +651,40 @@ export function displayOverall(
   math: BuildMath,
   spent: number,
 ): { ovr: number; exhausted: boolean } {
-  const raw = overall(build.position, build.attrs, math.pivot);
-  const next = cheapestNextCost(build.position, build.attrs, math.caps);
-  const exhausted = next == null || next > math.budget - spent;
-  return { ovr: exhausted ? TARGET_OVR : raw, exhausted };
+  const raw = overall(
+    build.position,
+    build.attrs,
+    math.pivot,
+  );
+
+  const remaining = math.budget - spent;
+
+  const next = cheapestNextCost(
+    build.position,
+    build.attrs,
+    math.caps,
+  );
+
+  const exhausted =
+    next == null ||
+    next > remaining + 0.01;
+
+  /*
+   * Only show 99 when the player has genuinely exhausted
+   * the legal budget.
+   *
+   * This prevents an unfinished build from being displayed
+   * as 99 simply because of rounding.
+   */
+  const ovr =
+    exhausted && raw >= 98
+      ? TARGET_OVR
+      : raw;
+
+  return {
+    ovr,
+    exhausted,
+  };
 }
 
 /* ---------------- budget calibration (greedy solver) ---------------- */
@@ -432,25 +728,55 @@ function walk(body: Body, caps: Record<AttrKey, number>, mode: "best" | "worst",
   return path;
 }
 
+function calculatePivot(
+  body: Body,
+  caps: Record<AttrKey, number>,
+) {
+  const reference = referenceAttributes(
+    body.position,
+  );
+
+  const clamped = { ...reference };
+
+  for (const k of ATTR_KEYS) {
+    clamped[k] = clamp(
+      clamped[k],
+      BASE_ATTR,
+      caps[k],
+    );
+  }
+
+  const legal = enforceDependencies(clamped);
+
+  return weightedComposite(
+    body.position,
+    legal,
+  );
+}
+
 /**
  * The efficient walk gives the ceiling of this body and the cost of an ideal
  * 99. The wasteful walk gives the floor of what the same budget can produce.
  * The 99 pivot sits between them, so specialization is rewarded but a sane
  * spender is never locked out of 99.
  */
-export function buildMath(body: Body): BuildMath {
+export function buildMath(
+  body: Body,
+): BuildMath {
   const caps = attributeCaps(body);
-  const best = walk(body, caps, "best");
-  const ceiling = best[best.length - 1]!.composite;
-  const target = BASE_ATTR + (ceiling - BASE_ATTR) * 0.5;
-  const needed = best.find((p) => p.composite >= target)?.cost ?? best[best.length - 1]!.cost;
-  const budget = Math.round(needed * 1.06);
 
-  const worst = walk(body, caps, "worst", budget);
-  const floor = worst[worst.length - 1]!.composite;
-  const pivot = floor >= target ? target : floor + (target - floor) * 0.8;
+  const budget = calculateBudget(body);
 
-  return { caps, pivot, budget };
+  const pivot = calculatePivot(
+    body,
+    caps,
+  );
+
+  return {
+    caps,
+    pivot,
+    budget,
+  };
 }
 
 
