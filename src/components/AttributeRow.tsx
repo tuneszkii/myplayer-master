@@ -16,7 +16,7 @@ interface Props {
   position: PositionId;
   remaining: number;
   /** Change to this attribute's cap from the last body/position change. */
-  capDelta?: number;
+  capDelta?: number | undefined;
   onStep: (delta: number) => void;
 }
 
