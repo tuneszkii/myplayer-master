@@ -689,6 +689,7 @@ export function clampAttrsToBody(build: Build): Build {
   const caps = attributeCaps(build);
   const attrs = { ...build.attrs };
   for (const k of ATTR_KEYS) attrs[k] = clamp(attrs[k] ?? BASE_ATTR, BASE_ATTR, caps[k]);
-  return { ...build, attrs };
+  return { ...build, attrs: enforceDependencies(attrs) };
 }
+
 
