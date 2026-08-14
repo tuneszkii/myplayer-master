@@ -378,13 +378,6 @@ function categoryWeights(position: PositionId) {
   return raw.map((v) => v / sum);
 }
 
-function categoryWeights(position: PositionId) {
-  const w = POSITION_WEIGHTS[position];
-  const raw = CATEGORIES.map((c) => c.attrs.reduce((s, k) => s + w[k], 0) / c.attrs.length);
-  const sum = raw.reduce((s, v) => s + v, 0);
-  return raw.map((v) => v / sum);
-}
-
 export function categoryRatings(
   position: PositionId,
   attrs: Attributes,
