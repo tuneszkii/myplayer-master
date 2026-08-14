@@ -337,17 +337,26 @@ export function categoryRatings(position: PositionId, attrs: Attributes): Catego
   });
 }
 
+/**
+ * Elite ratings are worth disproportionately more than average ones, so a build
+ * with a real strength out-rates a build that is merely well-rounded.
+ */
+function impact(value: number) {
+  const t = clamp((value - BASE_ATTR) / (99 - BASE_ATTR), 0, 1);
+  return BASE_ATTR + (99 - BASE_ATTR) * Math.pow(t, 1.45);
+}
+
 export function weightedComposite(position: PositionId, attrs: Attributes) {
   const w = POSITION_WEIGHTS[position];
-  const cw = categoryWeights(position);
-  let total = 0;
-  CATEGORIES.forEach((c, i) => {
-    const wsum = c.attrs.reduce((s, k) => s + w[k], 0);
-    const rating = c.attrs.reduce((s, k) => s + attrs[k] * w[k], 0) / wsum;
-    total += rating * cw[i]!;
-  });
-  return total;
+  let num = 0;
+  let den = 0;
+  for (const k of ATTR_KEYS) {
+    num += impact(attrs[k]) * w[k];
+    den += w[k];
+  }
+  return num / den;
 }
+
 
 /**
  * 99 OVR maps to a weighted-category composite of `pivot`, which is solved per
