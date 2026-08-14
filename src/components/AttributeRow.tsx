@@ -15,6 +15,8 @@ interface Props {
   max: number; // effective max (body potential cap)
   position: PositionId;
   remaining: number;
+  /** Change to this attribute's cap from the last body/position change. */
+  capDelta?: number;
   onStep: (delta: number) => void;
 }
 
@@ -26,6 +28,7 @@ export function AttributeRow({
   max,
   position,
   remaining,
+  capDelta,
   onStep,
 }: Props) {
   const weight = POSITION_WEIGHTS[position][attrKey];
@@ -42,7 +45,15 @@ export function AttributeRow({
         <div className="min-w-0">
           <p className="truncate text-sm text-foreground">{label}</p>
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            cap {cap} · {weight.toFixed(2)}x
+            cap {cap}
+            {capDelta ? (
+              <span className={capDelta > 0 ? " text-accent" : " text-destructive"}>
+                {" "}
+                {capDelta > 0 ? "▲" : "▼"}
+                {Math.abs(capDelta)}
+              </span>
+            ) : null}{" "}
+            · {weight.toFixed(2)}x{max < cap ? " · gated" : ""}
             {nextCost != null && (
               <span className={canUp ? " text-accent" : " text-destructive"}>
                 {" "}
