@@ -205,32 +205,89 @@ export function baseAttributes(): Attributes {
 
 /* ---------------- potential limits ---------------- */
 
+/** Attribute dependencies: value ≤ value of the gating attribute. */
+export const ATTR_DEPENDENCIES: Partial<Record<AttrKey, AttrKey>> = {
+  speedWithBall: "speed",
+};
+
 /**
- * Highest value an attribute can currently be raised to. Only the body's hard
- * potential cap applies — there are no category maximums, so the position
- * weighting (cost) is what limits how far a build can be pushed.
+ * Highest value an attribute can currently be raised to: the body's hard
+ * potential cap, further limited by any gating attribute (Speed With Ball can
+ * never exceed Speed).
  */
-export function effectiveMax(key: AttrKey, caps: Record<AttrKey, number>): number {
-  return Math.max(BASE_ATTR, caps[key]);
+export function effectiveMax(
+  key: AttrKey,
+  caps: Record<AttrKey, number>,
+  attrs?: Attributes,
+): number {
+  let max = caps[key];
+  const gate = ATTR_DEPENDENCIES[key];
+  if (gate && attrs) max = Math.min(max, attrs[gate]);
+  return Math.max(BASE_ATTR, max);
 }
 
+/** Attributes that must obey `key` as a gate (inverse of ATTR_DEPENDENCIES). */
+const DEPENDENTS: Partial<Record<AttrKey, AttrKey[]>> = {};
+for (const [dep, gate] of Object.entries(ATTR_DEPENDENCIES) as [AttrKey, AttrKey][]) {
+  (DEPENDENTS[gate] ??= []).push(dep);
+}
+
+/** Lowering a gate drags its dependents down with it. */
+export function enforceDependencies(attrs: Attributes): Attributes {
+  const out = { ...attrs };
+  for (const [dep, gate] of Object.entries(ATTR_DEPENDENCIES) as [AttrKey, AttrKey][]) {
+    out[dep] = Math.min(out[dep], out[gate]);
+  }
+  return out;
+}
+
+export { DEPENDENTS as ATTR_DEPENDENTS };
 
 /* ---------------- nonlinear cost ---------------- */
 
+/** Base progressive cost of the point taking an attribute from `value` to `value + 1`. */
 export function tierCost(value: number) {
-  if (value <= 60) return 1.0;
-  if (value <= 70) return 1.2;
-  if (value <= 80) return 1.5;
-  if (value <= 85) return 2.0;
-  if (value <= 90) return 2.8;
-  if (value <= 94) return 4.0;
-  if (value <= 97) return 5.5;
-  return 8.0;
+  if (value <= 69) return 1.0;
+  if (value <= 79) return 1.25;
+  if (value <= 84) return 1.5;
+  if (value <= 89) return 2.0;
+  if (value <= 94) return 3.0;
+  if (value <= 97) return 4.0;
+  return 6.0;
 }
+
+/** Extra multiplier applied to every point above 89 — the "90+ tax". */
+export function eliteTax(value: number) {
+  if (value <= 79) return 1;
+  if (value <= 84) return 1.4;
+  if (value <= 89) return 2.4;
+  if (value <= 94) return 4.5;
+  if (value <= 97) return 5;
+  return 8;
+}
+
+/**
+ * Attributes that swing gameplay the most carry a premium once they cross 89,
+ * so stacking several of them is what really drains the budget.
+ */
+const PREMIUM_ATTRS: Partial<Record<AttrKey, number>> = {
+  threePoint: 1.3,
+  midRange: 1.15,
+  drivingDunk: 1.3,
+  ballHandle: 1.25,
+  speedWithBall: 1.25,
+  perimeterDefense: 1.2,
+  steal: 1.15,
+  speed: 1.15,
+  block: 1.15,
+  interiorDefense: 1.1,
+  standingDunk: 1.1,
+};
 
 /** Cost of the single point taking `key` from `from` to `from + 1`. */
 export function pointCost(position: PositionId, key: AttrKey, from: number) {
-  return tierCost(from) * POSITION_WEIGHTS[position][key];
+  const premium = from >= 89 ? (PREMIUM_ATTRS[key] ?? 1) : 1;
+  return tierCost(from) * eliteTax(from) * POSITION_WEIGHTS[position][key] * premium;
 }
 
 export function spentBudget(position: PositionId, attrs: Attributes) {
@@ -240,6 +297,22 @@ export function spentBudget(position: PositionId, attrs: Attributes) {
   }
   return total;
 }
+
+/** Cheapest legal next point, or null when nothing more can be bought. */
+export function cheapestNextCost(
+  position: PositionId,
+  attrs: Attributes,
+  caps: Record<AttrKey, number>,
+) {
+  let best: number | null = null;
+  for (const k of ATTR_KEYS) {
+    if (attrs[k] >= effectiveMax(k, caps, attrs)) continue;
+    const c = pointCost(position, k, attrs[k]);
+    if (best == null || c < best) best = c;
+  }
+  return best;
+}
+
 
 /* ---------------- categories + OVR ---------------- */
 
@@ -266,27 +339,52 @@ export function categoryRatings(position: PositionId, attrs: Attributes): Catego
   });
 }
 
+/**
+ * Elite ratings are worth disproportionately more than average ones, so a build
+ * with a real strength out-rates a build that is merely well-rounded.
+ */
+function impact(value: number) {
+  const t = clamp((value - BASE_ATTR) / (99 - BASE_ATTR), 0, 1);
+  return BASE_ATTR + (99 - BASE_ATTR) * Math.pow(t, 1.45);
+}
+
 export function weightedComposite(position: PositionId, attrs: Attributes) {
   const w = POSITION_WEIGHTS[position];
-  const cw = categoryWeights(position);
-  let total = 0;
-  CATEGORIES.forEach((c, i) => {
-    const wsum = c.attrs.reduce((s, k) => s + w[k], 0);
-    const rating = c.attrs.reduce((s, k) => s + attrs[k] * w[k], 0) / wsum;
-    total += rating * cw[i]!;
-  });
-  return total;
+  let num = 0;
+  let den = 0;
+  for (const k of ATTR_KEYS) {
+    num += impact(attrs[k]) * w[k];
+    den += w[k];
+  }
+  return num / den;
 }
+
 
 /**
  * 99 OVR maps to a weighted-category composite of `pivot`, which is solved per
- * body: it sits just under the best composite this body can legally reach, so
- * 99 is a budget puzzle rather than a reward for maxing everything.
+ * body: it sits between the worst and the best composite this body can buy with
+ * its budget, so 99 demands a real identity without ever becoming unreachable.
  */
 export function overall(position: PositionId, attrs: Attributes, pivot: number) {
   const composite = weightedComposite(position, attrs);
   const progress = (composite - BASE_ATTR) / Math.max(pivot - BASE_ATTR, 1);
   return clamp(Math.round(BASE_ATTR + (TARGET_OVR - BASE_ATTR) * progress), BASE_ATTR, TARGET_OVR);
+}
+
+/**
+ * OVR as shown to the player. Safety valve: once the remaining budget can no
+ * longer buy a single legal point, the build is finished by definition, so it
+ * reads 99 instead of stranding the player at 98.
+ */
+export function displayOverall(
+  build: Build,
+  math: BuildMath,
+  spent: number,
+): { ovr: number; exhausted: boolean } {
+  const raw = overall(build.position, build.attrs, math.pivot);
+  const next = cheapestNextCost(build.position, build.attrs, math.caps);
+  const exhausted = next == null || next > math.budget - spent;
+  return { ovr: exhausted ? TARGET_OVR : raw, exhausted };
 }
 
 /* ---------------- budget calibration (greedy solver) ---------------- */
@@ -297,43 +395,60 @@ export interface BuildMath {
   budget: number;
 }
 
-/**
- * Greedily solve the body for composite-per-cost efficiency. The walk gives us
- * both the ceiling of this body (the pivot for 99 OVR) and the cost of getting
- * there (the attribute budget, plus a small slack).
- */
-export function buildMath(body: Body): BuildMath {
-  const caps = attributeCaps(body);
+interface WalkStep {
+  composite: number;
+  cost: number;
+}
+
+/** Greedy walk over legal points, picking best (or worst) composite-per-cost. */
+function walk(body: Body, caps: Record<AttrKey, number>, mode: "best" | "worst", limit = Infinity) {
   const attrs = baseAttributes();
-  const path: { composite: number; cost: number }[] = [
-    { composite: weightedComposite(body.position, attrs), cost: 0 },
-  ];
+  const path: WalkStep[] = [{ composite: weightedComposite(body.position, attrs), cost: 0 }];
   let cost = 0;
 
   for (let step = 0; step < 4000; step++) {
-    let best: { key: AttrKey; ratio: number; cost: number } | null = null;
+    let pick: { key: AttrKey; ratio: number; cost: number } | null = null;
     for (const k of ATTR_KEYS) {
-      if (attrs[k] >= caps[k]) continue;
-
+      if (attrs[k] >= effectiveMax(k, caps, attrs)) continue;
       const c = pointCost(body.position, k, attrs[k]);
+      if (cost + c > limit) continue;
       const before = weightedComposite(body.position, attrs);
       attrs[k] += 1;
       const gain = weightedComposite(body.position, attrs) - before;
       attrs[k] -= 1;
       const ratio = gain / c;
-      if (!best || ratio > best.ratio) best = { key: k, ratio, cost: c };
+      const better = mode === "best" ? ratio > (pick?.ratio ?? -Infinity) : ratio < (pick?.ratio ?? Infinity);
+      if (!pick || better) pick = { key: k, ratio, cost: c };
     }
-    if (!best) break;
-    attrs[best.key] += 1;
-    cost += best.cost;
+    if (!pick) break;
+    attrs[pick.key] += 1;
+    cost += pick.cost;
     path.push({ composite: weightedComposite(body.position, attrs), cost });
   }
-
-  const ceiling = path[path.length - 1]!.composite;
-  const pivot = BASE_ATTR + (ceiling - BASE_ATTR) * 0.9;
-  const needed = path.find((p) => p.composite >= pivot)?.cost ?? cost;
-  return { caps, pivot, budget: Math.round(needed * 1.06) };
+  return path;
 }
+
+/**
+ * The efficient walk gives the ceiling of this body and the cost of an ideal
+ * 99. The wasteful walk gives the floor of what the same budget can produce.
+ * The 99 pivot sits between them, so specialization is rewarded but a sane
+ * spender is never locked out of 99.
+ */
+export function buildMath(body: Body): BuildMath {
+  const caps = attributeCaps(body);
+  const best = walk(body, caps, "best");
+  const ceiling = best[best.length - 1]!.composite;
+  const target = BASE_ATTR + (ceiling - BASE_ATTR) * 0.5;
+  const needed = best.find((p) => p.composite >= target)?.cost ?? best[best.length - 1]!.cost;
+  const budget = Math.round(needed * 1.06);
+
+  const worst = walk(body, caps, "worst", budget);
+  const floor = worst[worst.length - 1]!.composite;
+  const pivot = floor >= target ? target : floor + (target - floor) * 0.8;
+
+  return { caps, pivot, budget };
+}
+
 
 
 /* ---------------- badges ---------------- */
@@ -585,6 +700,7 @@ export function clampAttrsToBody(build: Build): Build {
   const caps = attributeCaps(build);
   const attrs = { ...build.attrs };
   for (const k of ATTR_KEYS) attrs[k] = clamp(attrs[k] ?? BASE_ATTR, BASE_ATTR, caps[k]);
-  return { ...build, attrs };
+  return { ...build, attrs: enforceDependencies(attrs) };
 }
+
 
