@@ -258,10 +258,12 @@ export function tierCost(value: number) {
 
 /** Extra multiplier applied to every point above 89 — the "90+ tax". */
 export function eliteTax(value: number) {
-  if (value <= 89) return 1;
-  if (value <= 94) return 2;
-  if (value <= 97) return 3;
-  return 5;
+  if (value <= 79) return 1;
+  if (value <= 84) return 1.4;
+  if (value <= 89) return 2;
+  if (value <= 94) return 3.5;
+  if (value <= 97) return 5;
+  return 8;
 }
 
 /**
@@ -436,13 +438,13 @@ export function buildMath(body: Body): BuildMath {
   const caps = attributeCaps(body);
   const best = walk(body, caps, "best");
   const ceiling = best[best.length - 1]!.composite;
-  const target = BASE_ATTR + (ceiling - BASE_ATTR) * 0.9;
+  const target = BASE_ATTR + (ceiling - BASE_ATTR) * 0.58;
   const needed = best.find((p) => p.composite >= target)?.cost ?? best[best.length - 1]!.cost;
   const budget = Math.round(needed * 1.06);
 
   const worst = walk(body, caps, "worst", budget);
   const floor = worst[worst.length - 1]!.composite;
-  const pivot = floor >= target ? target : floor + (target - floor) * 0.45;
+  const pivot = floor >= target ? target : floor + (target - floor) * 0.8;
 
   return { caps, pivot, budget };
 }
