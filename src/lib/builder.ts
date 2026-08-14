@@ -205,32 +205,87 @@ export function baseAttributes(): Attributes {
 
 /* ---------------- potential limits ---------------- */
 
+/** Attribute dependencies: value ≤ value of the gating attribute. */
+export const ATTR_DEPENDENCIES: Partial<Record<AttrKey, AttrKey>> = {
+  speedWithBall: "speed",
+};
+
 /**
- * Highest value an attribute can currently be raised to. Only the body's hard
- * potential cap applies — there are no category maximums, so the position
- * weighting (cost) is what limits how far a build can be pushed.
+ * Highest value an attribute can currently be raised to: the body's hard
+ * potential cap, further limited by any gating attribute (Speed With Ball can
+ * never exceed Speed).
  */
-export function effectiveMax(key: AttrKey, caps: Record<AttrKey, number>): number {
-  return Math.max(BASE_ATTR, caps[key]);
+export function effectiveMax(
+  key: AttrKey,
+  caps: Record<AttrKey, number>,
+  attrs?: Attributes,
+): number {
+  let max = caps[key];
+  const gate = ATTR_DEPENDENCIES[key];
+  if (gate && attrs) max = Math.min(max, attrs[gate]);
+  return Math.max(BASE_ATTR, max);
 }
 
+/** Attributes that must obey `key` as a gate (inverse of ATTR_DEPENDENCIES). */
+const DEPENDENTS: Partial<Record<AttrKey, AttrKey[]>> = {};
+for (const [dep, gate] of Object.entries(ATTR_DEPENDENCIES) as [AttrKey, AttrKey][]) {
+  (DEPENDENTS[gate] ??= []).push(dep);
+}
+
+/** Lowering a gate drags its dependents down with it. */
+export function enforceDependencies(attrs: Attributes): Attributes {
+  const out = { ...attrs };
+  for (const [dep, gate] of Object.entries(ATTR_DEPENDENCIES) as [AttrKey, AttrKey][]) {
+    out[dep] = Math.min(out[dep], out[gate]);
+  }
+  return out;
+}
+
+export { DEPENDENTS as ATTR_DEPENDENTS };
 
 /* ---------------- nonlinear cost ---------------- */
 
+/** Base progressive cost of the point taking an attribute from `value` to `value + 1`. */
 export function tierCost(value: number) {
-  if (value <= 60) return 1.0;
-  if (value <= 70) return 1.2;
-  if (value <= 80) return 1.5;
-  if (value <= 85) return 2.0;
-  if (value <= 90) return 2.8;
-  if (value <= 94) return 4.0;
-  if (value <= 97) return 5.5;
-  return 8.0;
+  if (value <= 69) return 1.0;
+  if (value <= 79) return 1.25;
+  if (value <= 84) return 1.5;
+  if (value <= 89) return 2.0;
+  if (value <= 94) return 3.0;
+  if (value <= 97) return 4.0;
+  return 6.0;
 }
+
+/** Extra multiplier applied to every point above 89 — the "90+ tax". */
+export function eliteTax(value: number) {
+  if (value <= 89) return 1;
+  if (value <= 94) return 2;
+  if (value <= 97) return 3;
+  return 5;
+}
+
+/**
+ * Attributes that swing gameplay the most carry a premium once they cross 89,
+ * so stacking several of them is what really drains the budget.
+ */
+const PREMIUM_ATTRS: Partial<Record<AttrKey, number>> = {
+  threePoint: 1.3,
+  midRange: 1.15,
+  drivingDunk: 1.3,
+  ballHandle: 1.25,
+  speedWithBall: 1.25,
+  perimeterDefense: 1.2,
+  steal: 1.15,
+  speed: 1.15,
+  block: 1.15,
+  interiorDefense: 1.1,
+  standingDunk: 1.1,
+};
 
 /** Cost of the single point taking `key` from `from` to `from + 1`. */
 export function pointCost(position: PositionId, key: AttrKey, from: number) {
-  return tierCost(from) * POSITION_WEIGHTS[position][key];
+  const premium = from >= 89 ? (PREMIUM_ATTRS[key] ?? 1) : 1;
+  return tierCost(from) * eliteTax(from) * POSITION_WEIGHTS[position][key] * premium;
 }
 
 export function spentBudget(position: PositionId, attrs: Attributes) {
@@ -240,6 +295,22 @@ export function spentBudget(position: PositionId, attrs: Attributes) {
   }
   return total;
 }
+
+/** Cheapest legal next point, or null when nothing more can be bought. */
+export function cheapestNextCost(
+  position: PositionId,
+  attrs: Attributes,
+  caps: Record<AttrKey, number>,
+) {
+  let best: number | null = null;
+  for (const k of ATTR_KEYS) {
+    if (attrs[k] >= effectiveMax(k, caps, attrs)) continue;
+    const c = pointCost(position, k, attrs[k]);
+    if (best == null || c < best) best = c;
+  }
+  return best;
+}
+
 
 /* ---------------- categories + OVR ---------------- */
 
