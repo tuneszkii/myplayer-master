@@ -351,13 +351,29 @@ export function weightedComposite(position: PositionId, attrs: Attributes) {
 
 /**
  * 99 OVR maps to a weighted-category composite of `pivot`, which is solved per
- * body: it sits just under the best composite this body can legally reach, so
- * 99 is a budget puzzle rather than a reward for maxing everything.
+ * body: it sits between the worst and the best composite this body can buy with
+ * its budget, so 99 demands a real identity without ever becoming unreachable.
  */
 export function overall(position: PositionId, attrs: Attributes, pivot: number) {
   const composite = weightedComposite(position, attrs);
   const progress = (composite - BASE_ATTR) / Math.max(pivot - BASE_ATTR, 1);
   return clamp(Math.round(BASE_ATTR + (TARGET_OVR - BASE_ATTR) * progress), BASE_ATTR, TARGET_OVR);
+}
+
+/**
+ * OVR as shown to the player. Safety valve: once the remaining budget can no
+ * longer buy a single legal point, the build is finished by definition, so it
+ * reads 99 instead of stranding the player at 98.
+ */
+export function displayOverall(
+  build: Build,
+  math: BuildMath,
+  spent: number,
+): { ovr: number; exhausted: boolean } {
+  const raw = overall(build.position, build.attrs, math.pivot);
+  const next = cheapestNextCost(build.position, build.attrs, math.caps);
+  const exhausted = next == null || next > math.budget - spent;
+  return { ovr: exhausted ? TARGET_OVR : raw, exhausted };
 }
 
 /* ---------------- budget calibration (greedy solver) ---------------- */
@@ -368,43 +384,60 @@ export interface BuildMath {
   budget: number;
 }
 
-/**
- * Greedily solve the body for composite-per-cost efficiency. The walk gives us
- * both the ceiling of this body (the pivot for 99 OVR) and the cost of getting
- * there (the attribute budget, plus a small slack).
- */
-export function buildMath(body: Body): BuildMath {
-  const caps = attributeCaps(body);
+interface WalkStep {
+  composite: number;
+  cost: number;
+}
+
+/** Greedy walk over legal points, picking best (or worst) composite-per-cost. */
+function walk(body: Body, caps: Record<AttrKey, number>, mode: "best" | "worst", limit = Infinity) {
   const attrs = baseAttributes();
-  const path: { composite: number; cost: number }[] = [
-    { composite: weightedComposite(body.position, attrs), cost: 0 },
-  ];
+  const path: WalkStep[] = [{ composite: weightedComposite(body.position, attrs), cost: 0 }];
   let cost = 0;
 
   for (let step = 0; step < 4000; step++) {
-    let best: { key: AttrKey; ratio: number; cost: number } | null = null;
+    let pick: { key: AttrKey; ratio: number; cost: number } | null = null;
     for (const k of ATTR_KEYS) {
-      if (attrs[k] >= caps[k]) continue;
-
+      if (attrs[k] >= effectiveMax(k, caps, attrs)) continue;
       const c = pointCost(body.position, k, attrs[k]);
+      if (cost + c > limit) continue;
       const before = weightedComposite(body.position, attrs);
       attrs[k] += 1;
       const gain = weightedComposite(body.position, attrs) - before;
       attrs[k] -= 1;
       const ratio = gain / c;
-      if (!best || ratio > best.ratio) best = { key: k, ratio, cost: c };
+      const better = mode === "best" ? ratio > (pick?.ratio ?? -Infinity) : ratio < (pick?.ratio ?? Infinity);
+      if (!pick || better) pick = { key: k, ratio, cost: c };
     }
-    if (!best) break;
-    attrs[best.key] += 1;
-    cost += best.cost;
+    if (!pick) break;
+    attrs[pick.key] += 1;
+    cost += pick.cost;
     path.push({ composite: weightedComposite(body.position, attrs), cost });
   }
-
-  const ceiling = path[path.length - 1]!.composite;
-  const pivot = BASE_ATTR + (ceiling - BASE_ATTR) * 0.9;
-  const needed = path.find((p) => p.composite >= pivot)?.cost ?? cost;
-  return { caps, pivot, budget: Math.round(needed * 1.06) };
+  return path;
 }
+
+/**
+ * The efficient walk gives the ceiling of this body and the cost of an ideal
+ * 99. The wasteful walk gives the floor of what the same budget can produce.
+ * The 99 pivot sits between them, so specialization is rewarded but a sane
+ * spender is never locked out of 99.
+ */
+export function buildMath(body: Body): BuildMath {
+  const caps = attributeCaps(body);
+  const best = walk(body, caps, "best");
+  const ceiling = best[best.length - 1]!.composite;
+  const target = BASE_ATTR + (ceiling - BASE_ATTR) * 0.9;
+  const needed = best.find((p) => p.composite >= target)?.cost ?? best[best.length - 1]!.cost;
+  const budget = Math.round(needed * 1.06);
+
+  const worst = walk(body, caps, "worst", budget);
+  const floor = worst[worst.length - 1]!.composite;
+  const pivot = floor >= target ? target : floor + (target - floor) * 0.45;
+
+  return { caps, pivot, budget };
+}
+
 
 
 /* ---------------- badges ---------------- */
