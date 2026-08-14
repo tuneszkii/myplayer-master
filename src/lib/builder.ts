@@ -562,105 +562,184 @@ export function overall(
   );
 }
 
-function referenceAttributes(
-  position: PositionId,
-): Attributes {
+const BUILD_FINISH_MARGIN = 1.035;
+
+function referenceAttributes(position: PositionId): Attributes {
   const attrs = baseAttributes();
 
+  switch (position) {
+    case "PG":
+      attrs.closeShot = 70;
+      attrs.drivingLayup = 80;
+      attrs.drivingDunk = 87;
+      attrs.midRange = 79;
+      attrs.threePoint = 88;
+      attrs.freeThrow = 75;
+
+      attrs.passAccuracy = 80;
+      attrs.ballHandle = 86;
+      attrs.speedWithBall = 75;
+
+      attrs.perimeterDefense = 85;
+      attrs.interiorDefense = 75;
+      attrs.steal = 79;
+      attrs.block = 68;
+
+      attrs.offensiveRebound = 45;
+      attrs.defensiveRebound = 65;
+
+      attrs.speed = 85;
+      attrs.agility = 85;
+      attrs.strength = 65;
+      attrs.vertical = 75;
+      break;
+
+    case "SG":
+      attrs.closeShot = 70;
+      attrs.drivingLayup = 80;
+      attrs.drivingDunk = 85;
+      attrs.midRange = 80;
+      attrs.threePoint = 88;
+      attrs.freeThrow = 75;
+
+      attrs.passAccuracy = 75;
+      attrs.ballHandle = 84;
+      attrs.speedWithBall = 78;
+
+      attrs.perimeterDefense = 84;
+      attrs.interiorDefense = 65;
+      attrs.steal = 75;
+      attrs.block = 60;
+
+      attrs.offensiveRebound = 45;
+      attrs.defensiveRebound = 60;
+
+      attrs.speed = 84;
+      attrs.agility = 84;
+      attrs.strength = 65;
+      attrs.vertical = 78;
+      break;
+
+    case "SF":
+      attrs.closeShot = 75;
+      attrs.drivingLayup = 80;
+      attrs.drivingDunk = 85;
+      attrs.standingDunk = 70;
+      attrs.midRange = 78;
+      attrs.threePoint = 83;
+      attrs.freeThrow = 75;
+
+      attrs.passAccuracy = 70;
+      attrs.ballHandle = 78;
+      attrs.speedWithBall = 75;
+
+      attrs.perimeterDefense = 82;
+      attrs.interiorDefense = 70;
+      attrs.steal = 72;
+      attrs.block = 65;
+
+      attrs.offensiveRebound = 60;
+      attrs.defensiveRebound = 70;
+
+      attrs.speed = 80;
+      attrs.agility = 80;
+      attrs.strength = 75;
+      attrs.vertical = 80;
+      break;
+
+    case "PF":
+      attrs.closeShot = 80;
+      attrs.drivingLayup = 70;
+      attrs.drivingDunk = 85;
+      attrs.standingDunk = 85;
+      attrs.postControl = 75;
+
+      attrs.midRange = 75;
+      attrs.threePoint = 78;
+      attrs.freeThrow = 70;
+
+      attrs.passAccuracy = 65;
+      attrs.ballHandle = 65;
+      attrs.speedWithBall = 60;
+
+      attrs.perimeterDefense = 75;
+      attrs.interiorDefense = 82;
+      attrs.steal = 60;
+      attrs.block = 78;
+
+      attrs.offensiveRebound = 75;
+      attrs.defensiveRebound = 82;
+
+      attrs.speed = 75;
+      attrs.agility = 72;
+      attrs.strength = 85;
+      attrs.vertical = 78;
+      break;
+
+    case "C":
+      attrs.closeShot = 85;
+      attrs.drivingLayup = 65;
+      attrs.drivingDunk = 75;
+      attrs.standingDunk = 90;
+      attrs.postControl = 85;
+
+      attrs.midRange = 70;
+      attrs.threePoint = 75;
+      attrs.freeThrow = 70;
+
+      attrs.passAccuracy = 65;
+      attrs.ballHandle = 50;
+      attrs.speedWithBall = 45;
+
+      attrs.perimeterDefense = 65;
+      attrs.interiorDefense = 88;
+      attrs.steal = 50;
+      attrs.block = 85;
+
+      attrs.offensiveRebound = 80;
+      attrs.defensiveRebound = 90;
+
+      attrs.speed = 70;
+      attrs.agility = 65;
+      attrs.strength = 90;
+      attrs.vertical = 75;
+      break;
+  }
+
+  return attrs;
+}
+
+function referenceBudget(body: Body) {
+  const caps = attributeCaps(body);
+  let attrs = referenceAttributes(body.position);
+
   /*
-   * Position-neutral starting template.
-   *
-   * These values represent a good overall build rather than
-   * an all-around 90+ build.
+   * Body dimensions still matter.
    */
-  const template: Partial<Record<AttrKey, number>> = {
-    closeShot: 70,
-    drivingLayup: 75,
-    drivingDunk: 87,
-    standingDunk: 40,
-    postControl: 35,
-
-    midRange: 79,
-    threePoint: 88,
-    freeThrow: 80,
-
-    passAccuracy: 76,
-    ballHandle: 86,
-    speedWithBall: 75,
-
-    interiorDefense: 68,
-    perimeterDefense: 85,
-    steal: 79,
-    block: 60,
-
-    offensiveRebound: 45,
-    defensiveRebound: 65,
-
-    speed: 85,
-    agility: 85,
-    strength: 65,
-    vertical: 75,
-  };
-
   for (const k of ATTR_KEYS) {
-    if (template[k] != null) {
-      attrs[k] = template[k]!;
-    }
+    attrs[k] = clamp(
+      attrs[k],
+      BASE_ATTR,
+      caps[k],
+    );
   }
 
   /*
-   * Slight position normalization.
-   *
-   * We don't want the reference build to be identical for every
-   * position, but we also don't want the budget to be wildly
-   * different between positions.
+   * Apply attribute connections after body caps.
    */
-  if (position === "PG") {
-    attrs.passAccuracy += 2;
-    attrs.ballHandle += 2;
-    attrs.speedWithBall += 2;
-    attrs.defensiveRebound -= 3;
-  }
+  attrs = enforceDependencies(attrs);
 
-  if (position === "SG") {
-    attrs.threePoint += 1;
-    attrs.drivingDunk += 1;
-    attrs.perimeterDefense += 1;
-  }
+  return spentBudget(
+    body.position,
+    attrs,
+  );
+}
 
-  if (position === "SF") {
-    attrs.interiorDefense += 3;
-    attrs.defensiveRebound += 3;
-    attrs.strength += 3;
-    attrs.ballHandle -= 2;
-  }
+function calculateBudget(body: Body) {
+  const base = referenceBudget(body);
+  const BUILD_FINISH_MARGIN = 1.035;
 
-  if (position === "PF") {
-    attrs.interiorDefense += 6;
-    attrs.block += 6;
-    attrs.defensiveRebound += 8;
-    attrs.strength += 8;
-
-    attrs.ballHandle -= 8;
-    attrs.speedWithBall -= 8;
-    attrs.speed -= 4;
-  }
-
-  if (position === "C") {
-    attrs.interiorDefense += 10;
-    attrs.block += 10;
-    attrs.defensiveRebound += 12;
-    attrs.offensiveRebound += 8;
-    attrs.strength += 10;
-    attrs.standingDunk += 15;
-
-    attrs.ballHandle -= 15;
-    attrs.speedWithBall -= 15;
-    attrs.speed -= 8;
-    attrs.agility -= 8;
-  }
-
-  return enforceDependencies(attrs);
+  return Math.round(base * BUILD_FINISH_MARGIN);
 }
 
 function referenceBudget(body: Body) {
@@ -685,8 +764,6 @@ function referenceBudget(body: Body) {
     attrs,
   );
 }
-
-const BUILD_FINISH_MARGIN = 1.035;
 
 function calculateBudget(body: Body) {
   const base = referenceBudget(body);
