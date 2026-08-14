@@ -14,7 +14,6 @@ import {
   effectiveMax,
   enforceDependencies,
   formatHeight,
-  overall,
   pointCost,
   POSITIONS,
   spentBudget,
