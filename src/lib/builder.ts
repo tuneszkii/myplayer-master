@@ -564,6 +564,40 @@ export function overall(
 
 const BUILD_FINISH_MARGIN = 1.035;
 
+/** Overall scale on the reference-build cost. */
+const GLOBAL_BUDGET_MULTIPLIER = 1.0;
+
+/** Slight per-position tuning of how far the budget stretches. */
+const POSITION_BUDGET_MULTIPLIER: Record<PositionId, number> = {
+  PG: 1.0,
+  SG: 1.0,
+  SF: 1.0,
+  PF: 1.0,
+  C: 1.0,
+};
+
+/**
+ * Extreme frames (very tall/heavy or very small) get a small budget nudge so
+ * every legal body can still finish at 99.
+ */
+function bodyBudgetMultiplier(body: Body): number {
+  const pos = POSITIONS.find((p) => p.id === body.position)!;
+  const span = Math.max(1, pos.maxHeight - pos.minHeight);
+  const heightRatio = (body.height - pos.minHeight) / span; // 0..1
+  const w = weightRange(body.height, body.position);
+  const weightRatio = (body.weight - w.min) / Math.max(1, w.max - w.min);
+  const ws = wingspanRange(body.height);
+  const spanRatio = (body.wingspan - ws.min) / Math.max(1, ws.max - ws.min);
+
+  // Bodies at the edges of their ranges are more specialized: give them a
+  // touch more budget than perfectly average frames.
+  const extremity =
+    (Math.abs(heightRatio - 0.5) + Math.abs(weightRatio - 0.5) + Math.abs(spanRatio - 0.5)) / 1.5;
+
+  return 1 + extremity * 0.04;
+}
+
+
 function referenceAttributes(position: PositionId): Attributes {
   const attrs = baseAttributes();
 
