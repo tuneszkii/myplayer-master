@@ -6,13 +6,11 @@ import { BuildSummary } from "@/components/BuildSummary";
 import {
   ATTR_LIST,
   attributeCaps,
-  BASE_ATTR,
   CATEGORIES,
   baseAttributes,
   clampAttrsToBody,
   displayOverall,
   effectiveMax,
-  enforceDependencies,
   formatHeight,
   planAttrStep,
   POSITIONS,
