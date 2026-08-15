@@ -14,7 +14,7 @@ import {
   effectiveMax,
   enforceDependencies,
   formatHeight,
-  pointCost,
+  planAttrStep,
   POSITIONS,
   spentBudget,
   TARGET_OVR,
