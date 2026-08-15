@@ -296,20 +296,31 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                     {cat.id}
                   </h3>
                   <ul className="space-y-2">
-                    {ATTR_LIST.filter((a) => a.group === cat.id).map((a) => (
-                      <AttributeRow
-                        key={a.key}
-                        attrKey={a.key}
-                        label={a.label}
-                        value={build.attrs[a.key]}
-                        cap={caps[a.key]}
-                        max={effectiveMax(a.key, caps, build.attrs)}
-                        capDelta={capDeltas[a.key]}
-                        position={build.position}
-                        remaining={remaining}
-                        onStep={(d) => stepAttr(a.key, d)}
-                      />
-                    ))}
+                    {ATTR_LIST.filter((a) => a.group === cat.id).map((a) => {
+                      const plan = planAttrStep(build.position, build.attrs, caps, a.key, 1);
+                      const lifts =
+                        plan != null &&
+                        Object.keys(plan.attrs).some(
+                          (k) => k !== a.key && plan.attrs[k as AttrKey] !== build.attrs[k as AttrKey],
+                        );
+                      return (
+                        <AttributeRow
+                          key={a.key}
+                          attrKey={a.key}
+                          label={a.label}
+                          value={build.attrs[a.key]}
+                          cap={caps[a.key]}
+                          softMax={effectiveMax(a.key, caps, build.attrs)}
+                          capDelta={capDeltas[a.key]}
+                          position={build.position}
+                          nextCost={plan ? plan.cost : null}
+                          canUp={plan != null && plan.cost <= remaining}
+                          liftsSupports={lifts}
+                          onStep={(d) => stepAttr(a.key, d)}
+                        />
+                      );
+                    })}
+
                   </ul>
                 </div>
               ))}
