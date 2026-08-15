@@ -308,9 +308,83 @@ export function enforceDependencies(attrs: Attributes): Attributes {
   return out;
 }
 
+/**
+ * Raising a connected attribute past its soft gate is allowed — the supporting
+ * attributes are pulled up with it (2K-style), and the caller pays for those
+ * extra points too. Returns null when the move is impossible (hard body caps).
+ */
+export function planAttrStep(
+  position: PositionId,
+  attrs: Attributes,
+  caps: Record<AttrKey, number>,
+  key: AttrKey,
+  delta: number,
+): { attrs: Attributes; cost: number } | null {
+  if (delta < 0) {
+    const target = Math.max(BASE_ATTR, attrs[key] - 1);
+    if (target === attrs[key]) return null;
+    const next = enforceDependencies({ ...attrs, [key]: target });
+    return { attrs: next, cost: costBetween(position, attrs, next) };
+  }
+
+  const target = attrs[key] + 1;
+  if (target > Math.round(caps[key])) return null;
+
+  const next: Attributes = { ...attrs, [key]: target };
+
+  for (let pass = 0; pass < 12; pass++) {
+    let changed = false;
+
+    for (const c of ATTR_CONNECTIONS) {
+      const value = next[c.key];
+      if (value <= connectionMax(c.key, next)) continue;
+
+      // Needed support average so this attribute is legal at its value.
+      const needAvg = value / c.supportRatio;
+      let deficit = needAvg * c.supports.length -
+        c.supports.reduce((s, k2) => s + next[k2], 0);
+
+      // Spread the requirement over the supports, cheapest headroom first.
+      const order = [...c.supports].sort((a, b) => next[a] - next[b]);
+      for (const s of order) {
+        if (deficit <= 0.0001) break;
+        const room = Math.round(caps[s]) - next[s];
+        if (room <= 0) continue;
+        const add = Math.min(room, Math.ceil(deficit));
+        next[s] += add;
+        deficit -= add;
+        changed = true;
+      }
+
+      if (deficit > 0.0001) return null; // supports are capped out
+    }
+
+    if (!changed) break;
+  }
+
+  return { attrs: next, cost: costBetween(position, attrs, next) };
+}
+
+/** Net budget cost of moving from one attribute set to another. */
+export function costBetween(
+  position: PositionId,
+  from: Attributes,
+  to: Attributes,
+) {
+  let total = 0;
+
+  for (const k of ATTR_KEYS) {
+    for (let v = from[k]; v < to[k]; v++) total += pointCost(position, k, v);
+    for (let v = to[k]; v < from[k]; v++) total -= pointCost(position, k, v);
+  }
+
+  return total;
+}
+
 /* Compatibility exports for code that still references the old names. */
 export const ATTR_DEPENDENCIES: Partial<Record<AttrKey, AttrKey>> = {};
 export const ATTR_DEPENDENTS: Partial<Record<AttrKey, AttrKey[]>> = {};
+
 
 /* ---------------- nonlinear cost ---------------- */
 

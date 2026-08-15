@@ -6,15 +6,13 @@ import { BuildSummary } from "@/components/BuildSummary";
 import {
   ATTR_LIST,
   attributeCaps,
-  BASE_ATTR,
   CATEGORIES,
   baseAttributes,
   clampAttrsToBody,
   displayOverall,
   effectiveMax,
-  enforceDependencies,
   formatHeight,
-  pointCost,
+  planAttrStep,
   POSITIONS,
   spentBudget,
   TARGET_OVR,
@@ -103,20 +101,17 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
   function stepAttr(key: AttrKey, delta: number) {
     const current = liveRef.current;
     const currentCaps = attributeCaps(current);
-    const max = effectiveMax(key, currentCaps, current.attrs);
-    const target = clamp(current.attrs[key] + delta, BASE_ATTR, max);
-    if (target === current.attrs[key]) return;
+    const plan = planAttrStep(current.position, current.attrs, currentCaps, key, delta);
+    if (!plan) return;
     if (delta > 0) {
       const left = budget - spentBudget(current.position, current.attrs);
-      if (pointCost(current.position, key, current.attrs[key]) > left) return;
+      if (plan.cost > left) return;
     }
-    const next = {
-      ...current,
-      attrs: enforceDependencies({ ...current.attrs, [key]: target }),
-    };
+    const next = { ...current, attrs: plan.attrs };
     liveRef.current = next;
     onChange(next);
   }
+
 
 
   const tabs: { id: typeof tab; label: string }[] = [
@@ -299,20 +294,31 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                     {cat.id}
                   </h3>
                   <ul className="space-y-2">
-                    {ATTR_LIST.filter((a) => a.group === cat.id).map((a) => (
-                      <AttributeRow
-                        key={a.key}
-                        attrKey={a.key}
-                        label={a.label}
-                        value={build.attrs[a.key]}
-                        cap={caps[a.key]}
-                        max={effectiveMax(a.key, caps, build.attrs)}
-                        capDelta={capDeltas[a.key]}
-                        position={build.position}
-                        remaining={remaining}
-                        onStep={(d) => stepAttr(a.key, d)}
-                      />
-                    ))}
+                    {ATTR_LIST.filter((a) => a.group === cat.id).map((a) => {
+                      const plan = planAttrStep(build.position, build.attrs, caps, a.key, 1);
+                      const lifts =
+                        plan != null &&
+                        Object.keys(plan.attrs).some(
+                          (k) => k !== a.key && plan.attrs[k as AttrKey] !== build.attrs[k as AttrKey],
+                        );
+                      return (
+                        <AttributeRow
+                          key={a.key}
+                          attrKey={a.key}
+                          label={a.label}
+                          value={build.attrs[a.key]}
+                          cap={caps[a.key]}
+                          softMax={effectiveMax(a.key, caps, build.attrs)}
+                          capDelta={capDeltas[a.key]}
+                          position={build.position}
+                          nextCost={plan ? plan.cost : null}
+                          canUp={plan != null && plan.cost <= remaining}
+                          liftsSupports={lifts}
+                          onStep={(d) => stepAttr(a.key, d)}
+                        />
+                      );
+                    })}
+
                   </ul>
                 </div>
               ))}

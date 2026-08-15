@@ -1,20 +1,19 @@
 import { useHoldRepeat } from "@/hooks/use-hold-repeat";
-import {
-  BASE_ATTR,
-  POSITION_WEIGHTS,
-  pointCost,
-  type AttrKey,
-  type PositionId,
-} from "@/lib/builder";
+import { BASE_ATTR, POSITION_WEIGHTS, type AttrKey, type PositionId } from "@/lib/builder";
 
 interface Props {
   attrKey: AttrKey;
   label: string;
   value: number;
   cap: number;
-  max: number; // effective max (body potential cap)
+  /** Soft-gate ceiling before supporting attributes get pulled up. */
+  softMax: number;
   position: PositionId;
-  remaining: number;
+  /** Cost of the next point, including any supporting attributes it drags up. */
+  nextCost: number | null;
+  canUp: boolean;
+  /** True when the next point also raises connected attributes. */
+  liftsSupports: boolean;
   /** Change to this attribute's cap from the last body/position change. */
   capDelta?: number | undefined;
   onStep: (delta: number) => void;
@@ -25,15 +24,15 @@ export function AttributeRow({
   label,
   value,
   cap,
-  max,
+  softMax,
   position,
-  remaining,
+  nextCost,
+  canUp,
+  liftsSupports,
   capDelta,
   onStep,
 }: Props) {
   const weight = POSITION_WEIGHTS[position][attrKey];
-  const nextCost = value < max ? pointCost(position, attrKey, value) : null;
-  const canUp = nextCost != null && nextCost <= remaining;
   const canDown = value > BASE_ATTR;
 
   const up = useHoldRepeat(() => onStep(1));
@@ -53,11 +52,12 @@ export function AttributeRow({
                 {Math.abs(capDelta)}
               </span>
             ) : null}{" "}
-            · {weight.toFixed(2)}x{max < cap ? " · gated" : ""}
+            · {weight.toFixed(2)}x
             {nextCost != null && (
               <span className={canUp ? " text-accent" : " text-destructive"}>
                 {" "}
                 · next {nextCost.toFixed(1)}
+                {liftsSupports ? " +support" : ""}
               </span>
             )}
           </p>
@@ -88,7 +88,7 @@ export function AttributeRow({
         <div className="relative h-full w-full">
           <div
             className="absolute inset-y-0 left-0 bg-muted"
-            style={{ width: `${max}%` }}
+            style={{ width: `${Math.min(100, softMax)}%` }}
           />
           <div
             className="absolute inset-y-0 left-0 rounded-full flame-bg"
