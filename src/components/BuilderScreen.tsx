@@ -103,20 +103,17 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
   function stepAttr(key: AttrKey, delta: number) {
     const current = liveRef.current;
     const currentCaps = attributeCaps(current);
-    const max = effectiveMax(key, currentCaps, current.attrs);
-    const target = clamp(current.attrs[key] + delta, BASE_ATTR, max);
-    if (target === current.attrs[key]) return;
+    const plan = planAttrStep(current.position, current.attrs, currentCaps, key, delta);
+    if (!plan) return;
     if (delta > 0) {
       const left = budget - spentBudget(current.position, current.attrs);
-      if (pointCost(current.position, key, current.attrs[key]) > left) return;
+      if (plan.cost > left) return;
     }
-    const next = {
-      ...current,
-      attrs: enforceDependencies({ ...current.attrs, [key]: target }),
-    };
+    const next = { ...current, attrs: plan.attrs };
     liveRef.current = next;
     onChange(next);
   }
+
 
 
   const tabs: { id: typeof tab; label: string }[] = [
