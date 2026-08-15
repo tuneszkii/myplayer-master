@@ -737,36 +737,6 @@ function referenceBudget(body: Body) {
 
 function calculateBudget(body: Body) {
   const base = referenceBudget(body);
-  const BUILD_FINISH_MARGIN = 1.035;
-
-  return Math.round(base * BUILD_FINISH_MARGIN);
-}
-
-function referenceBudget(body: Body) {
-  const caps = attributeCaps(body);
-  let attrs = referenceAttributes(body.position);
-
-  /*
-   * Clamp the reference build to the body's actual caps.
-   */
-  for (const k of ATTR_KEYS) {
-    attrs[k] = clamp(
-      attrs[k],
-      BASE_ATTR,
-      caps[k],
-    );
-  }
-
-  attrs = enforceDependencies(attrs);
-
-  return spentBudget(
-    body.position,
-    attrs,
-  );
-}
-
-function calculateBudget(body: Body) {
-  const base = referenceBudget(body);
 
   const bodyModifier =
     bodyBudgetMultiplier(body);
