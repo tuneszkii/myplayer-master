@@ -103,7 +103,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
   function stepAttr(key: AttrKey, delta: number) {
     const current = liveRef.current;
     const currentCaps = attributeCaps(current);
-    const plan = planAttrStep(current.position, current.attrs, currentCaps, key, delta);
+    const plan = planAttrStep(current.position, current.attrs, currentCaps, key, delta, current.height);
     if (!plan) return;
     if (delta > 0) {
       const left = budget - spentBudget(current.position, current.attrs);
@@ -291,7 +291,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                   </h3>
                   <ul className="space-y-2">
                     {ATTR_LIST.filter((a) => a.group === cat.id).map((a) => {
-                      const plan = planAttrStep(build.position, build.attrs, caps, a.key, 1);
+                      const plan = planAttrStep(build.position, build.attrs, caps, a.key, 1, build.height);
                       const lifts =
                         plan != null &&
                         Object.keys(plan.attrs).some(
@@ -304,7 +304,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                           label={a.label}
                           value={build.attrs[a.key]}
                           cap={caps[a.key]}
-                          softMax={effectiveMax(a.key, caps, build.attrs)}
+                          softMax={effectiveMax(a.key, caps, build.attrs, build.height)}
                           capDelta={capDeltas[a.key]}
                           position={build.position}
                           nextCost={plan ? plan.cost : null}
