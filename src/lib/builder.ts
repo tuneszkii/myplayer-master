@@ -1243,7 +1243,7 @@ export function buildIdentity(build: Build): Identity {
     keys.reduce((s, k) => s + a[k] / Math.max(caps[k], 1), 0) / keys.length;
   const raw = (keys: AttrKey[]) => keys.reduce((s, k) => s + a[k], 0) / keys.length;
 
-  const traits: { id: TraitId; score: number; level: number }[] = [
+  const allTraits: { id: TraitId; score: number; level: number }[] = [
     { id: "deep", score: rel(["threePoint"]) * 1.05, level: raw(["threePoint"]) },
     { id: "mid", score: rel(["midRange", "ballHandle"]), level: raw(["midRange", "ballHandle"]) },
     { id: "slash", score: rel(["drivingDunk", "drivingLayup"]), level: raw(["drivingDunk", "drivingLayup"]) },
@@ -1253,7 +1253,9 @@ export function buildIdentity(build: Build): Identity {
     { id: "rimD", score: rel(["block", "interiorDefense"]), level: raw(["block", "interiorDefense"]) },
     { id: "glass", score: rel(["offensiveRebound", "defensiveRebound"]), level: raw(["offensiveRebound", "defensiveRebound"]) },
     { id: "athletic", score: rel(["vertical", "speed", "agility"]) * 0.9, level: raw(["vertical", "speed", "agility"]) },
-  ]
+  ];
+
+  const traits = allTraits
     .filter((t) => t.level >= 55)
     .sort((a2, b2) => b2.score - a2.score);
 
