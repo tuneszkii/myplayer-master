@@ -212,58 +212,148 @@ export function baseAttributes(): Attributes {
 /**
  * Attribute relationships inspired by 2K-style builder interactions.
  *
- * These are soft connections rather than one-to-one hard gates. A connected
- * attribute can still be strong on its own, but pushing it extremely high
- * requires supporting attributes to be developed as well.
+ * Each support states the minimum level it must sit at for a given value of the
+ * dependent attribute: `required = value * slope + offset + perInch * (height - 76)`.
+ * Because the requirement is a straight line, the relationship is fully
+ * invertible: raising the dependent nudges supports up by the exact amount it
+ * needs, and lowering a support walks the dependent back down point by point to
+ * the same place it came from. No floors, no snapping.
  */
+export interface SupportReq {
+  key: AttrKey;
+  slope: number;
+  offset: number;
+  /** Shifts the requirement per inch of height above 6'4". */
+  perInch?: number;
+}
+
 export interface AttrConnection {
   key: AttrKey;
-  supports: AttrKey[];
-  supportRatio: number;
-  floor: number;
+  supports: SupportReq[];
 }
+
+const REF_HEIGHT = 76;
 
 export const ATTR_CONNECTIONS: AttrConnection[] = [
   // Playmaking
-  { key: "speedWithBall", supports: ["speed", "ballHandle"], supportRatio: 1.00, floor: 55 },
+  {
+    key: "speedWithBall",
+    supports: [
+      { key: "speed", slope: 1.0, offset: -8 },
+      { key: "ballHandle", slope: 0.9, offset: -12 },
+    ],
+  },
 
   // Finishing
-  { key: "drivingDunk", supports: ["vertical", "strength"], supportRatio: 1.08, floor: 70 },
-  { key: "drivingLayup", supports: ["speed", "ballHandle"], supportRatio: 1.05, floor: 65 },
-  { key: "standingDunk", supports: ["strength", "vertical"], supportRatio: 1.10, floor: 55 },
-  { key: "postControl", supports: ["strength", "closeShot"], supportRatio: 1.05, floor: 55 },
+  {
+    key: "drivingDunk",
+    supports: [
+      { key: "standingDunk", slope: 0.8, offset: -31.2, perInch: 1.5 },
+      { key: "vertical", slope: 0.85, offset: -18, perInch: -1.0 },
+      { key: "strength", slope: 0.55, offset: -10, perInch: -0.5 },
+    ],
+  },
+  {
+    key: "drivingLayup",
+    supports: [
+      { key: "closeShot", slope: 1.1, offset: -20 },
+      { key: "ballHandle", slope: 0.8, offset: -24 },
+      { key: "speed", slope: 0.6, offset: -20 },
+    ],
+  },
+  {
+    key: "standingDunk",
+    supports: [
+      { key: "strength", slope: 0.7, offset: -18, perInch: -0.5 },
+      { key: "vertical", slope: 0.8, offset: -20, perInch: -1.0 },
+    ],
+  },
+  {
+    key: "postControl",
+    supports: [
+      { key: "strength", slope: 0.75, offset: -20 },
+      { key: "closeShot", slope: 0.8, offset: -20 },
+    ],
+  },
 
   // Shooting
-  { key: "threePoint", supports: ["midRange"], supportRatio: 1.10, floor: 65 },
-  { key: "midRange", supports: ["threePoint"], supportRatio: 1.10, floor: 65 },
+  { key: "threePoint", supports: [{ key: "midRange", slope: 0.8, offset: -22 }] },
+  {
+    key: "midRange",
+    supports: [
+      { key: "threePoint", slope: 0.55, offset: -20 },
+      { key: "closeShot", slope: 0.5, offset: -18 },
+    ],
+  },
 
   // Defense
-  { key: "steal", supports: ["perimeterDefense", "agility"], supportRatio: 1.05, floor: 60 },
-  { key: "perimeterDefense", supports: ["agility", "steal"], supportRatio: 1.05, floor: 60 },
-  { key: "block", supports: ["interiorDefense", "vertical"], supportRatio: 1.10, floor: 60 },
-  { key: "interiorDefense", supports: ["strength", "block"], supportRatio: 1.05, floor: 60 },
+  {
+    key: "steal",
+    supports: [
+      { key: "perimeterDefense", slope: 0.8, offset: -22 },
+      { key: "agility", slope: 0.6, offset: -18 },
+    ],
+  },
+  {
+    key: "perimeterDefense",
+    supports: [
+      { key: "agility", slope: 0.75, offset: -20 },
+      { key: "steal", slope: 0.5, offset: -18 },
+    ],
+  },
+  {
+    key: "block",
+    supports: [
+      { key: "interiorDefense", slope: 0.8, offset: -22 },
+      { key: "vertical", slope: 0.7, offset: -20, perInch: -1.2 },
+    ],
+  },
+  {
+    key: "interiorDefense",
+    supports: [{ key: "strength", slope: 0.8, offset: -20, perInch: -1.0 }],
+  },
 
   // Rebounding
-  { key: "defensiveRebound", supports: ["strength", "vertical"], supportRatio: 1.10, floor: 55 },
-  { key: "offensiveRebound", supports: ["strength", "vertical"], supportRatio: 1.10, floor: 50 },
+  {
+    key: "defensiveRebound",
+    supports: [
+      { key: "strength", slope: 0.7, offset: -20 },
+      { key: "vertical", slope: 0.7, offset: -22, perInch: -1.0 },
+    ],
+  },
+  {
+    key: "offensiveRebound",
+    supports: [
+      { key: "strength", slope: 0.7, offset: -22 },
+      { key: "vertical", slope: 0.75, offset: -22, perInch: -1.0 },
+    ],
+  },
 ];
 
 function connectionFor(key: AttrKey) {
   return ATTR_CONNECTIONS.find((c) => c.key === key);
 }
 
-function connectionMax(key: AttrKey, attrs: Attributes) {
+/** Minimum level a support must sit at for `value` on the dependent attribute. */
+export function requiredSupport(req: SupportReq, value: number, height = REF_HEIGHT) {
+  const raw = value * req.slope + req.offset + (req.perInch ?? 0) * (height - REF_HEIGHT);
+  return clamp(Math.round(raw), BASE_ATTR, 99);
+}
+
+/** Highest dependent value the current supports allow (soft gate). */
+function connectionMax(key: AttrKey, attrs: Attributes, height = REF_HEIGHT) {
   const connection = connectionFor(key);
   if (!connection) return Infinity;
 
-  const average =
-    connection.supports.reduce((sum, support) => sum + attrs[support], 0) /
-    connection.supports.length;
+  let max = 99;
+  for (const req of connection.supports) {
+    const shift = req.offset + (req.perInch ?? 0) * (height - REF_HEIGHT);
+    // requiredSupport(v) <= attrs[support]  =>  v <= (attrs + 0.5 - shift) / slope
+    const limit = Math.floor((attrs[req.key] + 0.5 - shift) / req.slope);
+    max = Math.min(max, limit);
+  }
 
-  return Math.max(
-    connection.floor,
-    Math.round(average * connection.supportRatio),
-  );
+  return Math.max(BASE_ATTR, max);
 }
 
 /**
@@ -273,11 +363,12 @@ export function effectiveMax(
   key: AttrKey,
   caps: Record<AttrKey, number>,
   attrs?: Attributes,
+  height = REF_HEIGHT,
 ): number {
   let max = caps[key];
 
   if (attrs) {
-    max = Math.min(max, connectionMax(key, attrs));
+    max = Math.min(max, connectionMax(key, attrs, height));
   }
 
   return Math.max(BASE_ATTR, Math.round(max));
@@ -285,16 +376,17 @@ export function effectiveMax(
 
 /**
  * Repeatedly enforce soft attribute connections so lowering a supporting stat
- * also lowers a dependent stat when necessary.
+ * also lowers a dependent stat, one point at a time, to exactly the value the
+ * supports allow.
  */
-export function enforceDependencies(attrs: Attributes): Attributes {
+export function enforceDependencies(attrs: Attributes, height = REF_HEIGHT): Attributes {
   const out = { ...attrs };
 
-  for (let pass = 0; pass < 6; pass++) {
+  for (let pass = 0; pass < 40; pass++) {
     let changed = false;
 
     for (const connection of ATTR_CONNECTIONS) {
-      const max = connectionMax(connection.key, out);
+      const max = connectionMax(connection.key, out, height);
 
       if (out[connection.key] > max) {
         out[connection.key] = max;
@@ -310,8 +402,9 @@ export function enforceDependencies(attrs: Attributes): Attributes {
 
 /**
  * Raising a connected attribute past its soft gate is allowed — the supporting
- * attributes are pulled up with it (2K-style), and the caller pays for those
- * extra points too. Returns null when the move is impossible (hard body caps).
+ * attributes are pulled up with it (2K-style) by exactly the points required,
+ * and the caller pays for those extra points too. Returns null when the move is
+ * impossible (hard body caps).
  */
 export function planAttrStep(
   position: PositionId,
@@ -319,11 +412,12 @@ export function planAttrStep(
   caps: Record<AttrKey, number>,
   key: AttrKey,
   delta: number,
+  height = REF_HEIGHT,
 ): { attrs: Attributes; cost: number } | null {
   if (delta < 0) {
     const target = Math.max(BASE_ATTR, attrs[key] - 1);
     if (target === attrs[key]) return null;
-    const next = enforceDependencies({ ...attrs, [key]: target });
+    const next = enforceDependencies({ ...attrs, [key]: target }, height);
     return { attrs: next, cost: costBetween(position, attrs, next) };
   }
 
@@ -332,27 +426,28 @@ export function planAttrStep(
 
   const next: Attributes = { ...attrs, [key]: target };
 
-  // 2K-style: pull supports up by the smallest possible amount, one point at a
-  // time on the lowest support, so the step feels smooth instead of jumping.
-  for (let pass = 0; pass < 400; pass++) {
+  // Pull supports up to exactly what the new value needs, cascading through
+  // supports that are themselves gated.
+  for (let pass = 0; pass < 60; pass++) {
     let changed = false;
 
     for (const c of ATTR_CONNECTIONS) {
-      if (next[c.key] <= connectionMax(c.key, next)) continue;
+      if (next[c.key] <= connectionMax(c.key, next, height)) continue;
 
-      const order = [...c.supports].sort((a, b) => next[a] - next[b]);
-      const support = order.find((s) => next[s] < Math.round(caps[s]));
-      if (!support) return null; // supports are capped out
-
-      next[support] += 1;
-      changed = true;
+      for (const req of c.supports) {
+        const need = requiredSupport(req, next[c.key], height);
+        if (need <= next[req.key]) continue;
+        if (need > Math.round(caps[req.key])) return null; // hard body cap
+        next[req.key] = need;
+        changed = true;
+      }
     }
 
     if (!changed) break;
   }
 
   for (const c of ATTR_CONNECTIONS) {
-    if (next[c.key] > connectionMax(c.key, next)) return null;
+    if (next[c.key] > connectionMax(c.key, next, height)) return null;
   }
 
   return { attrs: next, cost: costBetween(position, attrs, next) };
