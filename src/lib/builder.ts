@@ -332,34 +332,27 @@ export function planAttrStep(
 
   const next: Attributes = { ...attrs, [key]: target };
 
-  for (let pass = 0; pass < 12; pass++) {
+  // 2K-style: pull supports up by the smallest possible amount, one point at a
+  // time on the lowest support, so the step feels smooth instead of jumping.
+  for (let pass = 0; pass < 400; pass++) {
     let changed = false;
 
     for (const c of ATTR_CONNECTIONS) {
-      const value = next[c.key];
-      if (value <= connectionMax(c.key, next)) continue;
+      if (next[c.key] <= connectionMax(c.key, next)) continue;
 
-      // Needed support average so this attribute is legal at its value.
-      const needAvg = value / c.supportRatio;
-      let deficit = needAvg * c.supports.length -
-        c.supports.reduce((s, k2) => s + next[k2], 0);
-
-      // Spread the requirement over the supports, cheapest headroom first.
       const order = [...c.supports].sort((a, b) => next[a] - next[b]);
-      for (const s of order) {
-        if (deficit <= 0.0001) break;
-        const room = Math.round(caps[s]) - next[s];
-        if (room <= 0) continue;
-        const add = Math.min(room, Math.ceil(deficit));
-        next[s] += add;
-        deficit -= add;
-        changed = true;
-      }
+      const support = order.find((s) => next[s] < Math.round(caps[s]));
+      if (!support) return null; // supports are capped out
 
-      if (deficit > 0.0001) return null; // supports are capped out
+      next[support] += 1;
+      changed = true;
     }
 
     if (!changed) break;
+  }
+
+  for (const c of ATTR_CONNECTIONS) {
+    if (next[c.key] > connectionMax(c.key, next)) return null;
   }
 
   return { attrs: next, cost: costBetween(position, attrs, next) };
@@ -638,8 +631,9 @@ export function overall(
 
 const BUILD_FINISH_MARGIN = 1.035;
 
-/** Overall scale on the reference-build cost. */
-const GLOBAL_BUDGET_MULTIPLIER = 1.0;
+/** Overall scale on the reference-build cost. Slightly generous so builds can
+ * afford a bit of what they don't specialize in without being busted. */
+const GLOBAL_BUDGET_MULTIPLIER = 1.12;
 
 /** Slight per-position tuning of how far the budget stretches. */
 const POSITION_BUDGET_MULTIPLIER: Record<PositionId, number> = {
