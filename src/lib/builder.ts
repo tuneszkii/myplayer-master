@@ -924,7 +924,7 @@ function referenceBudget(body: Body) {
   /*
    * Apply attribute connections after body caps.
    */
-  attrs = enforceDependencies(attrs);
+  attrs = enforceDependencies(attrs, body.height);
 
   return spentBudget(
     body.position,
@@ -1023,7 +1023,7 @@ function walk(body: Body, caps: Record<AttrKey, number>, mode: "best" | "worst",
   for (let step = 0; step < 4000; step++) {
     let pick: { key: AttrKey; ratio: number; cost: number } | null = null;
     for (const k of ATTR_KEYS) {
-      if (attrs[k] >= effectiveMax(k, caps, attrs)) continue;
+      if (attrs[k] >= effectiveMax(k, caps, attrs, body.height)) continue;
       const c = pointCost(body.position, k, attrs[k]);
       if (cost + c > limit) continue;
       const before = weightedComposite(body.position, attrs);
@@ -1391,5 +1391,5 @@ export function clampAttrsToBody(build: Build): Build {
   const caps = attributeCaps(build);
   const attrs = { ...build.attrs };
   for (const k of ATTR_KEYS) attrs[k] = clamp(attrs[k] ?? BASE_ATTR, BASE_ATTR, caps[k]);
-  return { ...build, attrs: enforceDependencies(attrs) };
+  return { ...build, attrs: enforceDependencies(attrs, build.height) };
 }
