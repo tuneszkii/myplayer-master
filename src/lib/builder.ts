@@ -1173,37 +1173,119 @@ export interface Identity {
   takeover: string;
 }
 
+type TraitId =
+  | "deep" | "mid" | "slash" | "paint" | "play"
+  | "perimD" | "rimD" | "glass" | "athletic";
+
+const TRAIT_PREFIX: Record<TraitId, string> = {
+  deep: "Sharpshooting",
+  mid: "Shot-Creating",
+  slash: "Slashing",
+  paint: "Post-Scoring",
+  play: "Playmaking",
+  perimD: "Lockdown",
+  rimD: "Rim-Protecting",
+  glass: "Glass-Cleaning",
+  athletic: "High-Flying",
+};
+
+const TRAIT_NOUN: Record<TraitId, string> = {
+  deep: "Sniper",
+  mid: "Shot Creator",
+  slash: "Slasher",
+  paint: "Post Threat",
+  play: "Playmaker",
+  perimD: "Perimeter Lock",
+  rimD: "Paint Anchor",
+  glass: "Rebounder",
+  athletic: "Athlete",
+};
+
+const TRAIT_TAKEOVER: Record<TraitId, string> = {
+  deep: "Spot Up Precision",
+  mid: "Shot Creator",
+  slash: "Slasher",
+  paint: "Post Scorer",
+  play: "Playmaker",
+  perimD: "Lockdown Defender",
+  rimD: "Rim Protector",
+  glass: "Rebounder",
+  athletic: "Slasher",
+};
+
+const TRAIT_BLURB: Record<TraitId, string> = {
+  deep: "Punishes any space beyond the arc.",
+  mid: "Creates and hits tough looks off the bounce.",
+  slash: "Lives in the paint and finishes through traffic.",
+  paint: "Bullies defenders with back-to-basket scoring.",
+  play: "Runs the offense and finds every open teammate.",
+  perimD: "Smothers ball handlers on the perimeter.",
+  rimD: "Turns the paint into a no-fly zone.",
+  glass: "Owns both ends of the glass.",
+  athletic: "Wins with pure speed and explosiveness.",
+};
+
+const POSITION_NOUN: Record<PositionId, string> = {
+  PG: "Guard",
+  SG: "Wing",
+  SF: "Forward",
+  PF: "Forward",
+  C: "Big",
+};
+
 export function buildIdentity(build: Build): Identity {
   const a = build.attrs;
-  const shoot3 = a.threePoint;
-  const mid = a.midRange;
-  const handles = (a.ballHandle + a.speedWithBall) / 2;
-  const finish = (a.drivingDunk + a.drivingLayup) / 2;
-  const paint = (a.standingDunk + a.postControl + a.closeShot) / 3;
-  const rim = (a.block + a.interiorDefense) / 2;
-  const perim = (a.perimeterDefense + a.steal) / 2;
-  const glass = (a.offensiveRebound + a.defensiveRebound) / 2;
-  const pass = a.passAccuracy;
-  const athletic = (a.vertical + a.speed + a.agility) / 3;
-  const twoWay = Math.max(perim, rim) >= 82;
-  const big = build.height >= 80;
+  const caps = attributeCaps(build);
 
-  const candidates: { archetype: string; score: number; blurb: string; takeover: string }[] = [
-    { archetype: "3-Level Shot Creator", score: shoot3 * 1.1 + mid + handles * 0.9 - glass * 0.3, blurb: "Scores from everywhere off the bounce.", takeover: "Shot Creator" },
-    { archetype: "Inside-Out Playmaker", score: pass * 1.2 + handles + shoot3 * 0.7 + paint * 0.3, blurb: "Runs the offense, punishes drop coverage.", takeover: "Playmaker" },
-    { archetype: "2-Way Slashing Guard", score: finish + athletic * 0.9 + perim * 1.1 + handles * 0.6, blurb: "Often plays over the rim, guards the best player on the court consistently..", takeover: "Slasher" },
-    { archetype: "2-Way 3-Level Scorer", score: shoot3 + mid + finish + perim * 0.9, blurb: "Elite scorer who still defends.", takeover: "Shot Creator" },
-    { archetype: "Slashing Point Forward", score: finish + pass * 1.1 + (big ? 8 : 0) + handles * 0.6, blurb: "Big frame, guard skills, rim pressure.", takeover: "Slasher" },
-    { archetype: "Defensive Point Forward", score: perim * 1.2 + pass + rim * 0.7 + (big ? 6 : 0), blurb: "Guards 1-5, initiates offense.", takeover: "Lockdown Defender" },
-    { archetype: "Glass-Cleaning Finisher", score: glass * 1.3 + paint + athletic * 0.5, blurb: "Owns the offensive glass and the rim.", takeover: "Rebounder" },
-    { archetype: "Stretch Four", score: shoot3 * 1.3 + (big ? 10 : 0) + rim * 0.6 + glass * 0.5, blurb: "Pulls bigs out of the paint.", takeover: "Shot Creator" },
-    { archetype: "2-Way Inside-Out Scorer", score: paint + shoot3 * 1.05 + rim * 0.8, blurb: "Post and perimeter scoring with defense.", takeover: "Post Scorer" },
-    { archetype: "Paint Beast", score: paint * 1.15 + rim * 1.2 + a.strength * 0.6 + glass * 0.6, blurb: "The interior belongs to him.", takeover: "Rim Protector" },
-  ];
+  // Score each trait relative to what this body could reach, so different
+  // frames and spending patterns produce genuinely different identities.
+  const rel = (keys: AttrKey[]) =>
+    keys.reduce((s, k) => s + a[k] / Math.max(caps[k], 1), 0) / keys.length;
+  const raw = (keys: AttrKey[]) => keys.reduce((s, k) => s + a[k], 0) / keys.length;
 
-  const best = candidates.reduce((m, c) => (c.score > m.score ? c : m));
-  const blurb = twoWay ? `${best.blurb} Holds up on both ends.` : best.blurb;
-  return { archetype: best.archetype, blurb, takeover: best.takeover };
+  const traits: { id: TraitId; score: number; level: number }[] = [
+    { id: "deep", score: rel(["threePoint"]) * 1.05, level: raw(["threePoint"]) },
+    { id: "mid", score: rel(["midRange", "ballHandle"]), level: raw(["midRange", "ballHandle"]) },
+    { id: "slash", score: rel(["drivingDunk", "drivingLayup"]), level: raw(["drivingDunk", "drivingLayup"]) },
+    { id: "paint", score: rel(["postControl", "standingDunk", "closeShot"]), level: raw(["postControl", "standingDunk", "closeShot"]) },
+    { id: "play", score: rel(["passAccuracy", "speedWithBall"]), level: raw(["passAccuracy", "speedWithBall"]) },
+    { id: "perimD", score: rel(["perimeterDefense", "steal"]), level: raw(["perimeterDefense", "steal"]) },
+    { id: "rimD", score: rel(["block", "interiorDefense"]), level: raw(["block", "interiorDefense"]) },
+    { id: "glass", score: rel(["offensiveRebound", "defensiveRebound"]), level: raw(["offensiveRebound", "defensiveRebound"]) },
+    { id: "athletic", score: rel(["vertical", "speed", "agility"]) * 0.9, level: raw(["vertical", "speed", "agility"]) },
+  ]
+    .filter((t) => t.level >= 55)
+    .sort((a2, b2) => b2.score - a2.score);
+
+  if (traits.length === 0) {
+    return {
+      archetype: `Developing ${POSITION_NOUN[build.position]}`,
+      blurb: "No standout skill yet — keep spending attribute points.",
+      takeover: "None",
+    };
+  }
+
+  const first = traits[0]!;
+  const second = traits[1];
+
+  const offense: TraitId[] = ["deep", "mid", "slash", "paint", "play", "athletic"];
+  const defense: TraitId[] = ["perimD", "rimD", "glass"];
+  const twoWay =
+    traits.some((t) => offense.includes(t.id) && t.level >= 78) &&
+    traits.some((t) => defense.includes(t.id) && t.level >= 78);
+
+  const nounTrait = second && second.id !== first.id ? second.id : first.id;
+  let noun = TRAIT_NOUN[nounTrait];
+  if (nounTrait === first.id) noun = `${POSITION_NOUN[build.position]}`;
+
+  const elite = first.level >= 93 ? "Elite " : "";
+  const archetype = `${twoWay ? "2-Way " : elite}${TRAIT_PREFIX[first.id]} ${noun}`;
+
+  const blurb = second
+    ? `${TRAIT_BLURB[first.id]} ${TRAIT_BLURB[second.id]}`
+    : TRAIT_BLURB[first.id];
+
+  return { archetype, blurb, takeover: TRAIT_TAKEOVER[first.id] };
 }
 
 /* ---------------- helpers ---------------- */
