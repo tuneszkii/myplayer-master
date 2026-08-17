@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import { RangeControl } from "@/components/RangeControl";
 import { AttributeRow } from "@/components/AttributeRow";
 import { BuildSummary } from "@/components/BuildSummary";
+import { CapOverview } from "@/components/CapOverview";
+import { HoldButton } from "@/components/HoldButton";
 import {
   ATTR_LIST,
   attributeCaps,
@@ -173,7 +175,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
           </div>
 
 
-          <div className="mt-4 grid grid-cols-3 gap-2 lg:hidden">
+          <div className="mt-4 grid grid-cols-3 gap-2">
             {tabs.map((t) => (
               <button
                 key={t.id}
@@ -190,8 +192,8 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
           </div>
         </header>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,340px)]">
-          <div className={`${tab === "body" ? "" : "hidden"} space-y-5 lg:block`}>
+        <div className="grid gap-5">
+          <div className={`${tab === "body" ? "" : "hidden"} space-y-5`}>
             <section className="panel p-4">
               <h2 className="mb-3 text-xl">1 · Position</h2>
               <div className="grid grid-cols-5 gap-2">
@@ -269,16 +271,10 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
               </div>
             </section>
 
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => onChange({ ...build, attrs: baseAttributes() })}
-            >
-              Reset attributes to 25
-            </Button>
+            <CapOverview caps={caps} attrs={build.attrs} capDeltas={capDeltas} />
           </div>
 
-          <section className={`${tab === "attrs" ? "" : "hidden"} panel p-4 lg:block`}>
+          <section className={`${tab === "attrs" ? "" : "hidden"} panel p-4`}>
             <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
               <h2 className="text-xl">4 · Attributes</h2>
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -323,9 +319,17 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                 </div>
               ))}
             </div>
+
+            <div className="mt-5">
+              <HoldButton
+                label="Hold to reset attributes to 25"
+                holdLabel="Resetting…"
+                onComplete={() => onChange({ ...build, attrs: baseAttributes() })}
+              />
+            </div>
           </section>
 
-          <div className={`${tab === "summary" ? "" : "hidden"} lg:block`}>
+          <div className={`${tab === "summary" ? "" : "hidden"}`}>
             <BuildSummary build={build} spent={spent} budget={budget} pivot={math.pivot} />
           </div>
         </div>
