@@ -1042,7 +1042,7 @@ function referenceBudget(body: Body) {
   /*
    * Apply attribute connections after body caps.
    */
-  attrs = enforceDependencies(attrs, body.height);
+  attrs = enforceDependencies(attrs, caps);
 
   return spentBudget(
     body.position,
@@ -1125,8 +1125,6 @@ export function displayOverall(
   };
 }
 
-/* ---------------- budget calibration (greedy solver) ---------------- */
-
 export interface BuildMath {
   caps: Record<AttrKey, number>;
   pivot: number;
@@ -1147,7 +1145,7 @@ function walk(body: Body, caps: Record<AttrKey, number>, mode: "best" | "worst",
   for (let step = 0; step < 4000; step++) {
     let pick: { key: AttrKey; ratio: number; cost: number } | null = null;
     for (const k of ATTR_KEYS) {
-      if (attrs[k] >= effectiveMax(k, caps, attrs, body.height)) continue;
+  if (attrs[k] >= effectiveMax(k, caps, attrs)) continue;
       const c = pointCost(body.position, k, attrs[k]);
       if (cost + c > limit) continue;
       const before = weightedComposite(body.position, attrs);
