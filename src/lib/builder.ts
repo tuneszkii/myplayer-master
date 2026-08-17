@@ -332,34 +332,27 @@ export function planAttrStep(
 
   const next: Attributes = { ...attrs, [key]: target };
 
-  for (let pass = 0; pass < 12; pass++) {
+  // 2K-style: pull supports up by the smallest possible amount, one point at a
+  // time on the lowest support, so the step feels smooth instead of jumping.
+  for (let pass = 0; pass < 400; pass++) {
     let changed = false;
 
     for (const c of ATTR_CONNECTIONS) {
-      const value = next[c.key];
-      if (value <= connectionMax(c.key, next)) continue;
+      if (next[c.key] <= connectionMax(c.key, next)) continue;
 
-      // Needed support average so this attribute is legal at its value.
-      const needAvg = value / c.supportRatio;
-      let deficit = needAvg * c.supports.length -
-        c.supports.reduce((s, k2) => s + next[k2], 0);
-
-      // Spread the requirement over the supports, cheapest headroom first.
       const order = [...c.supports].sort((a, b) => next[a] - next[b]);
-      for (const s of order) {
-        if (deficit <= 0.0001) break;
-        const room = Math.round(caps[s]) - next[s];
-        if (room <= 0) continue;
-        const add = Math.min(room, Math.ceil(deficit));
-        next[s] += add;
-        deficit -= add;
-        changed = true;
-      }
+      const support = order.find((s) => next[s] < Math.round(caps[s]));
+      if (!support) return null; // supports are capped out
 
-      if (deficit > 0.0001) return null; // supports are capped out
+      next[support] += 1;
+      changed = true;
     }
 
     if (!changed) break;
+  }
+
+  for (const c of ATTR_CONNECTIONS) {
+    if (next[c.key] > connectionMax(c.key, next)) return null;
   }
 
   return { attrs: next, cost: costBetween(position, attrs, next) };
@@ -638,8 +631,9 @@ export function overall(
 
 const BUILD_FINISH_MARGIN = 1.035;
 
-/** Overall scale on the reference-build cost. */
-const GLOBAL_BUDGET_MULTIPLIER = 1.0;
+/** Overall scale on the reference-build cost. Slightly generous so builds can
+ * afford a bit of what they don't specialize in without being busted. */
+const GLOBAL_BUDGET_MULTIPLIER = 1.12;
 
 /** Slight per-position tuning of how far the budget stretches. */
 const POSITION_BUDGET_MULTIPLIER: Record<PositionId, number> = {
@@ -996,49 +990,49 @@ const S3 = T(60, 72, 84, 93, 98);
 
 export const BADGES: BadgeDef[] = [
   // Finishing
-  { id: "rimAttack", label: "Rim Attack", category: "Finishing", attr: "drivingLayup", steps: S1, desc: "Improves the player's ability to reach and finish at the basket when driving." },
-  { id: "contactScoring", label: "Contact Scoring", category: "Finishing", attr: "drivingDunk", steps: S2, desc: "Helps maintain finishing effectiveness when absorbing body contact from defenders." },
-  { id: "closeTouch", label: "Close Touch", category: "Finishing", attr: "closeShot", steps: S1, desc: "Improves consistency on short shots and finishes around the basket." },
-  { id: "drivingCraft", label: "Driving Craft", category: "Finishing", attr: "drivingLayup", steps: S1, desc: "Improves the ability to adjust angles, avoid defenders, and finish after changing direction." },
-  { id: "aerialFinishing", label: "Aerial Finishing", category: "Finishing", attr: "drivingDunk", steps: S2, desc: "Improves control and accuracy when finishing while airborne." },
-  { id: "postTechnique", label: "Post Technique", category: "Finishing", attr: "postControl", steps: S1, desc: "Improves effectiveness when creating scoring opportunities with back-to-basket moves." },
-  { id: "drawContact", label: "Draw Contact", category: "Finishing", attr: "strength", steps: S1, desc: "Increases the likelihood of forcing physical interactions when attacking the basket." },
-  { id: "finishConsistency", label: "Finish Consistency", category: "Finishing", attr: "closeShot", steps: S3, desc: "Reduces performance drops on difficult or contested finishing attempts." },
+  { id: "rimAttack", label: "Rim Attacker", category: "Finishing", attr: "drivingLayup", steps: S1, desc: "Improves the player's ability to reach and finish at the basket when driving." },
+  { id: "contactScoring", label: "Contact Scorer", category: "Finishing", attr: "drivingDunk", steps: S2, desc: "Helps maintain finishing effectiveness when absorbing body contact from defenders." },
+  { id: "closeTouch", label: "Soft Touch", category: "Finishing", attr: "closeShot", steps: S1, desc: "Improves consistency on short shots and finishes around the basket." },
+  { id: "drivingCraft", label: "Crafty Finisher", category: "Finishing", attr: "drivingLayup", steps: S1, desc: "Improves the ability to adjust angles, avoid defenders, and finish after changing direction." },
+  { id: "aerialFinishing", label: "Aerial Finisher", category: "Finishing", attr: "drivingDunk", steps: S2, desc: "Improves control and accuracy when finishing while airborne." },
+  { id: "postTechnique", label: "Post Technician", category: "Finishing", attr: "postControl", steps: S1, desc: "Improves effectiveness when creating scoring opportunities with back-to-basket moves." },
+  { id: "drawContact", label: "Foul Magnet", category: "Finishing", attr: "strength", steps: S1, desc: "Increases the likelihood of forcing physical interactions when attacking the basket." },
+  { id: "finishConsistency", label: "Reliable Finisher", category: "Finishing", attr: "closeShot", steps: S3, desc: "Reduces performance drops on difficult or contested finishing attempts." },
 
   // Defense & Rebounding
-  { id: "onBallContainment", label: "On-Ball Containment", category: "Defense & Rebounding", attr: "perimeterDefense", steps: S1, desc: "Helps the defender stay attached to ball handlers and prevent straight-line drives." },
-  { id: "reactionSpeed", label: "Reaction Speed", category: "Defense & Rebounding", attr: "agility", steps: S1, desc: "Improves how quickly the player responds to sudden offensive movements." },
-  { id: "disruption", label: "Disruption", category: "Defense & Rebounding", attr: "steal", steps: S2, desc: "Makes it easier to interfere with dribbles, passing lanes, and offensive actions." },
-  { id: "rimProtection", label: "Rim Protection", category: "Defense & Rebounding", attr: "block", steps: S1, desc: "Improves the ability to challenge, alter, and discourage shots near the basket." },
-  { id: "defensivePositioning", label: "Defensive Positioning", category: "Defense & Rebounding", attr: "interiorDefense", steps: S3, desc: "Helps the player automatically maintain better defensive angles and spacing." },
-  { id: "screenResistance", label: "Screen Resistance", category: "Defense & Rebounding", attr: "strength", steps: S1, desc: "Reduces the effectiveness of screens against the defender." },
-  { id: "deflectionSkill", label: "Deflection Skill", category: "Defense & Rebounding", attr: "steal", steps: S1, desc: "Improves the player's ability to get hands on nearby passes without completely committing to a steal." },
-  { id: "boxOutStrength", label: "Box-Out Strength", category: "Defense & Rebounding", attr: "strength", steps: S1, desc: "Improves the ability to establish and maintain rebounding position against opponents." },
-  { id: "reboundControl", label: "Rebound Control", category: "Defense & Rebounding", attr: "defensiveRebound", steps: S1, desc: "Improves the ability to secure rebounds and maintain possession after grabbing them." },
-  { id: "crashAwareness", label: "Crash Awareness", category: "Defense & Rebounding", attr: "offensiveRebound", steps: S1, desc: "Improves positioning and decision-making when attacking the offensive glass." },
+  { id: "onBallContainment", label: "On-Ball Stopper", category: "Defense & Rebounding", attr: "perimeterDefense", steps: S1, desc: "Helps the defender stay attached to ball handlers and prevent straight-line drives." },
+  { id: "reactionSpeed", label: "Quick Reflexes", category: "Defense & Rebounding", attr: "agility", steps: S1, desc: "Improves how quickly the player responds to sudden offensive movements." },
+  { id: "disruption", label: "Ball Hawk", category: "Defense & Rebounding", attr: "steal", steps: S2, desc: "Makes it easier to interfere with dribbles, passing lanes, and offensive actions." },
+  { id: "rimProtection", label: "Rim Protector", category: "Defense & Rebounding", attr: "block", steps: S1, desc: "Improves the ability to challenge, alter, and discourage shots near the basket." },
+  { id: "defensivePositioning", label: "Defensive Anchor", category: "Defense & Rebounding", attr: "interiorDefense", steps: S3, desc: "Helps the player automatically maintain better defensive angles and spacing." },
+  { id: "screenResistance", label: "Screen Buster", category: "Defense & Rebounding", attr: "strength", steps: S1, desc: "Reduces the effectiveness of screens against the defender." },
+  { id: "deflectionSkill", label: "Passing Lane Menace", category: "Defense & Rebounding", attr: "steal", steps: S1, desc: "Improves the player's ability to get hands on nearby passes without completely committing to a steal." },
+  { id: "boxOutStrength", label: "Box-Out Beast", category: "Defense & Rebounding", attr: "strength", steps: S1, desc: "Improves the ability to establish and maintain rebounding position against opponents." },
+  { id: "reboundControl", label: "Secure Hands", category: "Defense & Rebounding", attr: "defensiveRebound", steps: S1, desc: "Improves the ability to secure rebounds and maintain possession after grabbing them." },
+  { id: "crashAwareness", label: "Glass Crasher", category: "Defense & Rebounding", attr: "offensiveRebound", steps: S1, desc: "Improves positioning and decision-making when attacking the offensive glass." },
 
   // Shooting
-  { id: "deepAccuracy", label: "Deep Accuracy", category: "Shooting", attr: "threePoint", steps: S1, desc: "Improves shooting consistency from long distance." },
-  { id: "pullUpAccuracy", label: "Pull-Up Accuracy", category: "Shooting", attr: "midRange", steps: S1, desc: "Improves shot effectiveness when shooting immediately after creating space or moving." },
+  { id: "deepAccuracy", label: "Deep Threat", category: "Shooting", attr: "threePoint", steps: S1, desc: "Improves shooting consistency from long distance." },
+  { id: "pullUpAccuracy", label: "Pull-Up Sniper", category: "Shooting", attr: "midRange", steps: S1, desc: "Improves shot effectiveness when shooting immediately after creating space or moving." },
   { id: "setShotAccuracy", label: "Set Shot Accuracy", category: "Shooting", attr: "threePoint", steps: S1, desc: "Improves consistency on stationary shots with the player's feet set." },
-  { id: "midrangePrecision", label: "Midrange Precision", category: "Shooting", attr: "midRange", steps: S1, desc: "Improves accuracy on shots from the intermediate range." },
-  { id: "foulLineAccuracy", label: "Foul-Line Accuracy", category: "Shooting", attr: "freeThrow", steps: S3, desc: "Improves consistency on free throws." },
-  { id: "shotStability", label: "Shot Stability", category: "Shooting", attr: "midRange", steps: S1, desc: "Reduces the negative effect of defensive pressure and movement on shooting." },
-  { id: "releaseControl", label: "Release Control", category: "Shooting", attr: "threePoint", steps: S1, desc: "Makes the player's ideal shooting window more forgiving and consistent." },
+  { id: "midrangePrecision", label: "Midrange Maestro", category: "Shooting", attr: "midRange", steps: S1, desc: "Improves accuracy on shots from the intermediate range." },
+  { id: "foulLineAccuracy", label: "Free Throw Ace", category: "Shooting", attr: "freeThrow", steps: S3, desc: "Improves consistency on free throws." },
+  { id: "shotStability", label: "Steady Shooter", category: "Shooting", attr: "midRange", steps: S1, desc: "Reduces the negative effect of defensive pressure and movement on shooting." },
+  { id: "releaseControl", label: "Smooth Release", category: "Shooting", attr: "threePoint", steps: S1, desc: "Makes the player's ideal shooting window more forgiving and consistent." },
   { id: "range", label: "Range", category: "Shooting", attr: "threePoint", steps: T(60, 75, 85, 93, 98), desc: "Extends the distance from which the player can shoot effectively." },
   { id: "pressureShooting", label: "Pressure Shooting", category: "Shooting", attr: "freeThrow", steps: S3, desc: "Improves shooting performance during high-pressure situations such as late-game possessions." },
 
   // Playmaking
-  { id: "handleControl", label: "Handle Control", category: "Playmaking", attr: "ballHandle", steps: S1, desc: "Improves the player's ability to maintain control while performing dribble moves." },
-  { id: "changeOfDirection", label: "Change of Direction", category: "Playmaking", attr: "speedWithBall", steps: S1, desc: "Makes directional changes quicker and more responsive while dribbling." },
-  { id: "burstCreation", label: "Burst Creation", category: "Playmaking", attr: "speedWithBall", steps: S1, desc: "Improves the ability to accelerate out of dribble moves and create separation." },
-  { id: "passingPrecision", label: "Passing Precision", category: "Playmaking", attr: "passAccuracy", steps: S1, desc: "Improves pass accuracy, particularly on difficult or tightly targeted passes." },
-  { id: "passingSpeed", label: "Passing Speed", category: "Playmaking", attr: "passAccuracy", steps: S1, desc: "Increases the speed at which passes travel to teammates." },
-  { id: "decisionMaking", label: "Decision Making", category: "Playmaking", attr: "passAccuracy", steps: S3, desc: "Improves the player's ability to select effective actions based on the defensive situation." },
+  { id: "handleControl", label: "Tight Handles", category: "Playmaking", attr: "ballHandle", steps: S1, desc: "Improves the player's ability to maintain control while performing dribble moves." },
+  { id: "changeOfDirection", label: "Ankle Breaker", category: "Playmaking", attr: "speedWithBall", steps: S1, desc: "Makes directional changes quicker and more responsive while dribbling." },
+  { id: "burstCreation", label: "First Step", category: "Playmaking", attr: "speedWithBall", steps: S1, desc: "Improves the ability to accelerate out of dribble moves and create separation." },
+  { id: "passingPrecision", label: "Dime Dropper", category: "Playmaking", attr: "passAccuracy", steps: S1, desc: "Improves pass accuracy, particularly on difficult or tightly targeted passes." },
+  { id: "passingSpeed", label: "Zip Passer", category: "Playmaking", attr: "passAccuracy", steps: S1, desc: "Increases the speed at which passes travel to teammates." },
+  { id: "decisionMaking", label: "Floor General", category: "Playmaking", attr: "passAccuracy", steps: S3, desc: "Improves the player's ability to select effective actions based on the defensive situation." },
   { id: "courtVision", label: "Court Vision", category: "Playmaking", attr: "passAccuracy", steps: S1, desc: "Improves awareness of open teammates and passing opportunities." },
-  { id: "ballSecurity", label: "Ball Security", category: "Playmaking", attr: "ballHandle", steps: S3, desc: "Reduces the likelihood of losing the ball when pressured or performing risky actions." },
-  { id: "paceControl", label: "Pace Control", category: "Playmaking", attr: "speedWithBall", steps: S1, desc: "Improves the ability to change speeds and manipulate defenders while attacking." },
-  { id: "playmakingUnderPressure", label: "Playmaking Under Pressure", category: "Playmaking", attr: "ballHandle", steps: S1, desc: "Reduces the negative effects of defensive pressure on dribbling and passing." },
+  { id: "ballSecurity", label: "Strong Grip", category: "Playmaking", attr: "ballHandle", steps: S3, desc: "Reduces the likelihood of losing the ball when pressured or performing risky actions." },
+  { id: "paceControl", label: "Change Pace", category: "Playmaking", attr: "speedWithBall", steps: S1, desc: "Improves the ability to change speeds and manipulate defenders while attacking." },
+  { id: "playmakingUnderPressure", label: "Unpluckable", category: "Playmaking", attr: "ballHandle", steps: S1, desc: "Reduces the negative effects of defensive pressure on dribbling and passing." },
 ];
 
 export const BADGE_CATEGORIES: BadgeCategory[] = [
@@ -1179,37 +1173,121 @@ export interface Identity {
   takeover: string;
 }
 
+type TraitId =
+  | "deep" | "mid" | "slash" | "paint" | "play"
+  | "perimD" | "rimD" | "glass" | "athletic";
+
+const TRAIT_PREFIX: Record<TraitId, string> = {
+  deep: "Sharpshooting",
+  mid: "Shot-Creating",
+  slash: "Slashing",
+  paint: "Post-Scoring",
+  play: "Playmaking",
+  perimD: "Lockdown",
+  rimD: "Rim-Protecting",
+  glass: "Glass-Cleaning",
+  athletic: "High-Flying",
+};
+
+const TRAIT_NOUN: Record<TraitId, string> = {
+  deep: "Sniper",
+  mid: "Shot Creator",
+  slash: "Slasher",
+  paint: "Post Threat",
+  play: "Playmaker",
+  perimD: "Perimeter Lock",
+  rimD: "Paint Anchor",
+  glass: "Rebounder",
+  athletic: "Athlete",
+};
+
+const TRAIT_TAKEOVER: Record<TraitId, string> = {
+  deep: "Spot Up Precision",
+  mid: "Shot Creator",
+  slash: "Slasher",
+  paint: "Post Scorer",
+  play: "Playmaker",
+  perimD: "Lockdown Defender",
+  rimD: "Rim Protector",
+  glass: "Rebounder",
+  athletic: "Slasher",
+};
+
+const TRAIT_BLURB: Record<TraitId, string> = {
+  deep: "Punishes any space beyond the arc.",
+  mid: "Creates and hits tough looks off the bounce.",
+  slash: "Lives in the paint and finishes through traffic.",
+  paint: "Bullies defenders with back-to-basket scoring.",
+  play: "Runs the offense and finds every open teammate.",
+  perimD: "Smothers ball handlers on the perimeter.",
+  rimD: "Turns the paint into a no-fly zone.",
+  glass: "Owns both ends of the glass.",
+  athletic: "Wins with pure speed and explosiveness.",
+};
+
+const POSITION_NOUN: Record<PositionId, string> = {
+  PG: "Guard",
+  SG: "Wing",
+  SF: "Forward",
+  PF: "Forward",
+  C: "Big",
+};
+
 export function buildIdentity(build: Build): Identity {
   const a = build.attrs;
-  const shoot3 = a.threePoint;
-  const mid = a.midRange;
-  const handles = (a.ballHandle + a.speedWithBall) / 2;
-  const finish = (a.drivingDunk + a.drivingLayup) / 2;
-  const paint = (a.standingDunk + a.postControl + a.closeShot) / 3;
-  const rim = (a.block + a.interiorDefense) / 2;
-  const perim = (a.perimeterDefense + a.steal) / 2;
-  const glass = (a.offensiveRebound + a.defensiveRebound) / 2;
-  const pass = a.passAccuracy;
-  const athletic = (a.vertical + a.speed + a.agility) / 3;
-  const twoWay = Math.max(perim, rim) >= 82;
-  const big = build.height >= 80;
+  const caps = attributeCaps(build);
 
-  const candidates: { archetype: string; score: number; blurb: string; takeover: string }[] = [
-    { archetype: "3-Level Shot Creator", score: shoot3 * 1.1 + mid + handles * 0.9 - glass * 0.3, blurb: "Scores from everywhere off the bounce.", takeover: "Shot Creator" },
-    { archetype: "Inside-Out Playmaker", score: pass * 1.2 + handles + shoot3 * 0.7 + paint * 0.3, blurb: "Runs the offense, punishes drop coverage.", takeover: "Playmaker" },
-    { archetype: "2-Way Slashing Guard", score: finish + athletic * 0.9 + perim * 1.1 + handles * 0.6, blurb: "Often plays over the rim, guards the best player on the court consistently..", takeover: "Slasher" },
-    { archetype: "2-Way 3-Level Scorer", score: shoot3 + mid + finish + perim * 0.9, blurb: "Elite scorer who still defends.", takeover: "Shot Creator" },
-    { archetype: "Slashing Point Forward", score: finish + pass * 1.1 + (big ? 8 : 0) + handles * 0.6, blurb: "Big frame, guard skills, rim pressure.", takeover: "Slasher" },
-    { archetype: "Defensive Point Forward", score: perim * 1.2 + pass + rim * 0.7 + (big ? 6 : 0), blurb: "Guards 1-5, initiates offense.", takeover: "Lockdown Defender" },
-    { archetype: "Glass-Cleaning Finisher", score: glass * 1.3 + paint + athletic * 0.5, blurb: "Owns the offensive glass and the rim.", takeover: "Rebounder" },
-    { archetype: "Stretch Four", score: shoot3 * 1.3 + (big ? 10 : 0) + rim * 0.6 + glass * 0.5, blurb: "Pulls bigs out of the paint.", takeover: "Shot Creator" },
-    { archetype: "2-Way Inside-Out Scorer", score: paint + shoot3 * 1.05 + rim * 0.8, blurb: "Post and perimeter scoring with defense.", takeover: "Post Scorer" },
-    { archetype: "Paint Beast", score: paint * 1.15 + rim * 1.2 + a.strength * 0.6 + glass * 0.6, blurb: "The interior belongs to him.", takeover: "Rim Protector" },
+  // Score each trait relative to what this body could reach, so different
+  // frames and spending patterns produce genuinely different identities.
+  const rel = (keys: AttrKey[]) =>
+    keys.reduce((s, k) => s + a[k] / Math.max(caps[k], 1), 0) / keys.length;
+  const raw = (keys: AttrKey[]) => keys.reduce((s, k) => s + a[k], 0) / keys.length;
+
+  const allTraits: { id: TraitId; score: number; level: number }[] = [
+    { id: "deep", score: rel(["threePoint"]) * 1.05, level: raw(["threePoint"]) },
+    { id: "mid", score: rel(["midRange", "ballHandle"]), level: raw(["midRange", "ballHandle"]) },
+    { id: "slash", score: rel(["drivingDunk", "drivingLayup"]), level: raw(["drivingDunk", "drivingLayup"]) },
+    { id: "paint", score: rel(["postControl", "standingDunk", "closeShot"]), level: raw(["postControl", "standingDunk", "closeShot"]) },
+    { id: "play", score: rel(["passAccuracy", "speedWithBall"]), level: raw(["passAccuracy", "speedWithBall"]) },
+    { id: "perimD", score: rel(["perimeterDefense", "steal"]), level: raw(["perimeterDefense", "steal"]) },
+    { id: "rimD", score: rel(["block", "interiorDefense"]), level: raw(["block", "interiorDefense"]) },
+    { id: "glass", score: rel(["offensiveRebound", "defensiveRebound"]), level: raw(["offensiveRebound", "defensiveRebound"]) },
+    { id: "athletic", score: rel(["vertical", "speed", "agility"]) * 0.9, level: raw(["vertical", "speed", "agility"]) },
   ];
 
-  const best = candidates.reduce((m, c) => (c.score > m.score ? c : m));
-  const blurb = twoWay ? `${best.blurb} Holds up on both ends.` : best.blurb;
-  return { archetype: best.archetype, blurb, takeover: best.takeover };
+  const traits = allTraits
+    .filter((t) => t.level >= 55)
+    .sort((a2, b2) => b2.score - a2.score);
+
+  if (traits.length === 0) {
+    return {
+      archetype: `Developing ${POSITION_NOUN[build.position]}`,
+      blurb: "No standout skill yet — keep spending attribute points.",
+      takeover: "None",
+    };
+  }
+
+  const first = traits[0]!;
+  const second = traits[1];
+
+  const offense: TraitId[] = ["deep", "mid", "slash", "paint", "play", "athletic"];
+  const defense: TraitId[] = ["perimD", "rimD", "glass"];
+  const twoWay =
+    traits.some((t) => offense.includes(t.id) && t.level >= 78) &&
+    traits.some((t) => defense.includes(t.id) && t.level >= 78);
+
+  const nounTrait = second && second.id !== first.id ? second.id : first.id;
+  let noun = TRAIT_NOUN[nounTrait];
+  if (nounTrait === first.id) noun = `${POSITION_NOUN[build.position]}`;
+
+  const elite = first.level >= 93 ? "Elite " : "";
+  const archetype = `${twoWay ? "2-Way " : elite}${TRAIT_PREFIX[first.id]} ${noun}`;
+
+  const blurb = second
+    ? `${TRAIT_BLURB[first.id]} ${TRAIT_BLURB[second.id]}`
+    : TRAIT_BLURB[first.id];
+
+  return { archetype, blurb, takeover: TRAIT_TAKEOVER[first.id] };
 }
 
 /* ---------------- helpers ---------------- */
