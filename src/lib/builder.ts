@@ -207,189 +207,365 @@ export function baseAttributes(): Attributes {
   return Object.fromEntries(ATTR_KEYS.map((k) => [k, BASE_ATTR])) as Attributes;
 }
 
-/* ---------------- attribute connections + potential limits ---------------- */
+/* ---------------- attribute connections ---------------- */
 
 /**
- * Attribute relationships inspired by 2K-style builder interactions.
+ * Attribute connections
  *
- * Each support states the minimum level it must sit at for a given value of the
- * dependent attribute: `required = value * slope + offset + perInch * (height - 76)`.
- * Because the requirement is a straight line, the relationship is fully
- * invertible: raising the dependent nudges supports up by the exact amount it
- * needs, and lowering a support walks the dependent back down point by point to
- * the same place it came from. No floors, no snapping.
+ * These are NOT hard 1:1 gates.
+ *
+ * Instead, an attribute's maximum is influenced by supporting attributes.
+ * This is closer to the NBA 2K builder philosophy:
+ *
+ * - You can specialize.
+ * - You don't have to max every supporting stat.
+ * - But extreme ratings require a reasonable foundation.
+ *
+ * Example:
+ *
+ * 88 Speed With Ball does not require 88 Speed.
+ * But you will need a combination of Speed + Ball Handle
+ * that supports an 88 SWB.
  */
-export interface SupportReq {
-  key: AttrKey;
-  slope: number;
-  offset: number;
-  /** Shifts the requirement per inch of height above 6'4". */
-  perInch?: number;
+
+export interface AttributeConnection {
+  /**
+   * Attributes that contribute to the connected attribute.
+   */
+  supports: AttrKey[];
+
+  /**
+   * How much of the supporting average contributes.
+   *
+   * 0.50 means the supporting average contributes 50%.
+   */
+  supportWeight: number;
+
+  /**
+   * Minimum amount of support before the connection begins
+   * limiting the attribute.
+   */
+  softFloor: number;
+
+  /**
+   * How strongly the attribute is limited when support is low.
+   *
+   * Example:
+   * 0.75 means only 75% of the support deficit is applied.
+   */
+  penalty: number;
 }
 
-export interface AttrConnection {
-  key: AttrKey;
-  supports: SupportReq[];
+export const ATTRIBUTE_CONNECTIONS: Partial<
+  Record<AttrKey, AttributeConnection>
+> = {
+  /* ---------------- shooting ---------------- */
+
+  threePoint: {
+    supports: ["midRange", "freeThrow"],
+    supportWeight: 0.65,
+    softFloor: 65,
+    penalty: 0.55,
+  },
+
+  midRange: {
+    supports: ["threePoint", "freeThrow", "closeShot"],
+    supportWeight: 0.55,
+    softFloor: 60,
+    penalty: 0.45,
+  },
+
+  freeThrow: {
+    supports: ["midRange", "threePoint"],
+    supportWeight: 0.35,
+    softFloor: 60,
+    penalty: 0.35,
+  },
+
+  closeShot: {
+    supports: ["midRange", "drivingLayup"],
+    supportWeight: 0.30,
+    softFloor: 55,
+    penalty: 0.30,
+  },
+
+  /* ---------------- finishing ---------------- */
+
+  drivingDunk: {
+    supports: ["vertical", "strength", "drivingLayup"],
+    supportWeight: 0.60,
+    softFloor: 60,
+    penalty: 0.65,
+  },
+
+  drivingLayup: {
+    supports: ["speed", "ballHandle", "closeShot"],
+    supportWeight: 0.35,
+    softFloor: 60,
+    penalty: 0.35,
+  },
+
+  standingDunk: {
+    supports: ["strength", "vertical", "closeShot"],
+    supportWeight: 0.50,
+    softFloor: 60,
+    penalty: 0.55,
+  },
+
+  postControl: {
+    supports: ["strength", "closeShot", "midRange"],
+    supportWeight: 0.40,
+    softFloor: 60,
+    penalty: 0.40,
+  },
+
+  /* ---------------- playmaking ---------------- */
+
+  speedWithBall: {
+    supports: ["speed", "ballHandle"],
+    supportWeight: 0.70,
+    softFloor: 65,
+    penalty: 0.70,
+  },
+
+  ballHandle: {
+    supports: ["speed", "speedWithBall", "agility"],
+    supportWeight: 0.30,
+    softFloor: 60,
+    penalty: 0.30,
+  },
+
+  passAccuracy: {
+    supports: ["ballHandle", "speedWithBall"],
+    supportWeight: 0.20,
+    softFloor: 55,
+    penalty: 0.25,
+  },
+
+  /* ---------------- defense ---------------- */
+
+  perimeterDefense: {
+    supports: ["speed", "agility", "steal"],
+    supportWeight: 0.50,
+    softFloor: 65,
+    penalty: 0.50,
+  },
+
+  steal: {
+    supports: ["perimeterDefense", "agility"],
+    supportWeight: 0.45,
+    softFloor: 60,
+    penalty: 0.45,
+  },
+
+  interiorDefense: {
+    supports: ["strength", "block"],
+    supportWeight: 0.50,
+    softFloor: 60,
+    penalty: 0.50,
+  },
+
+  block: {
+    supports: ["interiorDefense", "vertical", "strength"],
+    supportWeight: 0.55,
+    softFloor: 60,
+    penalty: 0.55,
+  },
+
+  /* ---------------- rebounding ---------------- */
+
+  offensiveRebound: {
+    supports: ["defensiveRebound", "strength", "vertical"],
+    supportWeight: 0.50,
+    softFloor: 60,
+    penalty: 0.50,
+  },
+
+  defensiveRebound: {
+    supports: ["offensiveRebound", "strength", "vertical"],
+    supportWeight: 0.55,
+    softFloor: 60,
+    penalty: 0.55,
+  },
+
+  /* ---------------- physicals ---------------- */
+
+  speed: {
+    supports: ["agility", "perimeterDefense"],
+    supportWeight: 0.30,
+    softFloor: 60,
+    penalty: 0.30,
+  },
+
+  agility: {
+    supports: ["speed", "perimeterDefense"],
+    supportWeight: 0.30,
+    softFloor: 60,
+    penalty: 0.30,
+  },
+
+  vertical: {
+    supports: ["drivingDunk", "block", "strength"],
+    supportWeight: 0.25,
+    softFloor: 60,
+    penalty: 0.25,
+  },
+
+  strength: {
+    supports: ["interiorDefense", "postControl", "standingDunk"],
+    supportWeight: 0.25,
+    softFloor: 55,
+    penalty: 0.25,
+  },
+};
+
+/**
+ * Calculates the supporting rating for an attribute.
+ *
+ * We use a weighted average rather than requiring every connected
+ * attribute to be equally high.
+ */
+function connectionSupport(
+  key: AttrKey,
+  attrs: Attributes,
+): number {
+  const connection = ATTRIBUTE_CONNECTIONS[key];
+
+  if (!connection) return 99;
+
+  const values = connection.supports.map(
+    (support) => attrs[support],
+  );
+
+  if (values.length === 0) return 99;
+
+  return (
+    values.reduce((sum, value) => sum + value, 0) /
+    values.length
+  );
 }
 
-const REF_HEIGHT = 76;
+/**
+ * Calculates the maximum legal rating for a connected attribute.
+ *
+ * Important:
+ *
+ * This is a SOFT gate.
+ *
+ * A player with:
+ *
+ * Speed 80
+ * Ball Handle 80
+ *
+ * can still get very high SWB.
+ *
+ * But a player with:
+ *
+ * Speed 55
+ * Ball Handle 50
+ *
+ * cannot dump 95 points into SWB.
+ */
+export function connectedMax(
+  key: AttrKey,
+  caps: Record<AttrKey, number>,
+  attrs: Attributes,
+): number {
+  const hardCap = caps[key];
+  const connection = ATTRIBUTE_CONNECTIONS[key];
 
-export const ATTR_CONNECTIONS: AttrConnection[] = [
-  // Playmaking
-  {
-    key: "speedWithBall",
-    supports: [
-      { key: "speed", slope: 1.0, offset: -8 },
-      { key: "ballHandle", slope: 0.9, offset: -12 },
-    ],
-  },
-
-  // Finishing
-  {
-    key: "drivingDunk",
-    supports: [
-      { key: "standingDunk", slope: 0.8, offset: -31.2, perInch: 1.5 },
-      { key: "vertical", slope: 0.85, offset: -18, perInch: -1.0 },
-      { key: "strength", slope: 0.55, offset: -10, perInch: -0.5 },
-    ],
-  },
-  {
-    key: "drivingLayup",
-    supports: [
-      { key: "closeShot", slope: 1.1, offset: -20 },
-      { key: "ballHandle", slope: 0.8, offset: -24 },
-      { key: "speed", slope: 0.6, offset: -20 },
-    ],
-  },
-  {
-    key: "standingDunk",
-    supports: [
-      { key: "strength", slope: 0.7, offset: -18, perInch: -0.5 },
-      { key: "vertical", slope: 0.8, offset: -20, perInch: -1.0 },
-    ],
-  },
-  {
-    key: "postControl",
-    supports: [
-      { key: "strength", slope: 0.75, offset: -20 },
-      { key: "closeShot", slope: 0.8, offset: -20 },
-    ],
-  },
-
-  // Shooting
-  { key: "threePoint", supports: [{ key: "midRange", slope: 0.8, offset: -22 }] },
-  {
-    key: "midRange",
-    supports: [
-      { key: "threePoint", slope: 0.55, offset: -20 },
-      { key: "closeShot", slope: 0.5, offset: -18 },
-    ],
-  },
-
-  // Defense
-  {
-    key: "steal",
-    supports: [
-      { key: "perimeterDefense", slope: 0.8, offset: -22 },
-      { key: "agility", slope: 0.6, offset: -18 },
-    ],
-  },
-  {
-    key: "perimeterDefense",
-    supports: [
-      { key: "agility", slope: 0.75, offset: -20 },
-      { key: "steal", slope: 0.5, offset: -18 },
-    ],
-  },
-  {
-    key: "block",
-    supports: [
-      { key: "interiorDefense", slope: 0.8, offset: -22 },
-      { key: "vertical", slope: 0.7, offset: -20, perInch: -1.2 },
-    ],
-  },
-  {
-    key: "interiorDefense",
-    supports: [{ key: "strength", slope: 0.8, offset: -20, perInch: -1.0 }],
-  },
-
-  // Rebounding
-  {
-    key: "defensiveRebound",
-    supports: [
-      { key: "strength", slope: 0.7, offset: -20 },
-      { key: "vertical", slope: 0.7, offset: -22, perInch: -1.0 },
-    ],
-  },
-  {
-    key: "offensiveRebound",
-    supports: [
-      { key: "strength", slope: 0.7, offset: -22 },
-      { key: "vertical", slope: 0.75, offset: -22, perInch: -1.0 },
-    ],
-  },
-];
-
-function connectionFor(key: AttrKey) {
-  return ATTR_CONNECTIONS.find((c) => c.key === key);
-}
-
-/** Minimum level a support must sit at for `value` on the dependent attribute. */
-export function requiredSupport(req: SupportReq, value: number, height = REF_HEIGHT) {
-  const raw = value * req.slope + req.offset + (req.perInch ?? 0) * (height - REF_HEIGHT);
-  return clamp(Math.round(raw), BASE_ATTR, 99);
-}
-
-/** Highest dependent value the current supports allow (soft gate). */
-function connectionMax(key: AttrKey, attrs: Attributes, height = REF_HEIGHT) {
-  const connection = connectionFor(key);
-  if (!connection) return Infinity;
-
-  let max = 99;
-  for (const req of connection.supports) {
-    const shift = req.offset + (req.perInch ?? 0) * (height - REF_HEIGHT);
-    // requiredSupport(v) <= attrs[support]  =>  v <= (attrs + 0.5 - shift) / slope
-    const limit = Math.floor((attrs[req.key] + 0.5 - shift) / req.slope);
-    max = Math.min(max, limit);
+  if (!connection) {
+    return hardCap;
   }
 
-  return Math.max(BASE_ATTR, max);
+  const support = connectionSupport(key, attrs);
+
+  if (support >= connection.softFloor) {
+    /*
+     * Once the supporting attributes reach the floor,
+     * the connection stops heavily restricting the rating.
+     *
+     * We still allow the body's hard cap to control the final maximum.
+     */
+    return hardCap;
+  }
+
+  /*
+   * Deficit below the support floor.
+   */
+  const deficit = connection.softFloor - support;
+
+  /*
+   * Only apply part of the deficit.
+   *
+   * This creates a gradual restriction rather than a hard gate.
+   */
+  const penalty =
+    deficit * connection.penalty;
+
+  return Math.max(
+    BASE_ATTR,
+    Math.round(hardCap - penalty),
+  );
 }
 
 /**
- * Highest legal value an attribute can currently reach.
+ * Highest value an attribute can currently reach.
  */
 export function effectiveMax(
   key: AttrKey,
   caps: Record<AttrKey, number>,
   attrs?: Attributes,
-  height = REF_HEIGHT,
 ): number {
-  let max = caps[key];
-
-  if (attrs) {
-    max = Math.min(max, connectionMax(key, attrs, height));
+  if (!attrs) {
+    return Math.max(
+      BASE_ATTR,
+      caps[key],
+    );
   }
 
-  return Math.max(BASE_ATTR, Math.round(max));
+  return Math.max(
+    BASE_ATTR,
+    Math.min(
+      caps[key],
+      connectedMax(key, caps, attrs),
+    ),
+  );
 }
 
 /**
- * Repeatedly enforce soft attribute connections so lowering a supporting stat
- * also lowers a dependent stat, one point at a time, to exactly the value the
- * supports allow.
+ * Enforces connections after attributes are changed.
+ *
+ * Unlike the old system, this does NOT drag an attribute directly
+ * down to another attribute's rating.
+ *
+ * Instead, it only respects the calculated soft maximum.
  */
-export function enforceDependencies(attrs: Attributes, height = REF_HEIGHT): Attributes {
+export function enforceDependencies(
+  attrs: Attributes,
+  caps?: Record<AttrKey, number>,
+): Attributes {
+  if (!caps) {
+    return { ...attrs };
+  }
+
   const out = { ...attrs };
 
-  for (let pass = 0; pass < 40; pass++) {
+  /*
+   * Run multiple passes because attributes can support each other.
+   */
+  for (let pass = 0; pass < 4; pass++) {
     let changed = false;
 
-    for (const connection of ATTR_CONNECTIONS) {
-      const max = connectionMax(connection.key, out, height);
+    for (const key of ATTR_KEYS) {
+      const max = effectiveMax(
+        key,
+        caps,
+        out,
+      );
 
-      if (out[connection.key] > max) {
-        out[connection.key] = max;
+      if (out[key] > max) {
+        out[key] = max;
         changed = true;
       }
     }
@@ -401,77 +577,16 @@ export function enforceDependencies(attrs: Attributes, height = REF_HEIGHT): Att
 }
 
 /**
- * Raising a connected attribute past its soft gate is allowed — the supporting
- * attributes are pulled up with it (2K-style) by exactly the points required,
- * and the caller pays for those extra points too. Returns null when the move is
- * impossible (hard body caps).
+ * Kept for compatibility with any UI code that imports
+ * ATTR_DEPENDENTS.
  */
-export function planAttrStep(
-  position: PositionId,
-  attrs: Attributes,
-  caps: Record<AttrKey, number>,
-  key: AttrKey,
-  delta: number,
-  height = REF_HEIGHT,
-): { attrs: Attributes; cost: number } | null {
-  if (delta < 0) {
-    const target = Math.max(BASE_ATTR, attrs[key] - 1);
-    if (target === attrs[key]) return null;
-    const next = enforceDependencies({ ...attrs, [key]: target }, height);
-    return { attrs: next, cost: costBetween(position, attrs, next) };
-  }
+export const ATTR_DEPENDENCIES: Partial<
+  Record<AttrKey, AttrKey>
+> = {};
 
-  const target = attrs[key] + 1;
-  if (target > Math.round(caps[key])) return null;
-
-  const next: Attributes = { ...attrs, [key]: target };
-
-  // Pull supports up to exactly what the new value needs, cascading through
-  // supports that are themselves gated.
-  for (let pass = 0; pass < 60; pass++) {
-    let changed = false;
-
-    for (const c of ATTR_CONNECTIONS) {
-      if (next[c.key] <= connectionMax(c.key, next, height)) continue;
-
-      for (const req of c.supports) {
-        const need = requiredSupport(req, next[c.key], height);
-        if (need <= next[req.key]) continue;
-        if (need > Math.round(caps[req.key])) return null; // hard body cap
-        next[req.key] = need;
-        changed = true;
-      }
-    }
-
-    if (!changed) break;
-  }
-
-  for (const c of ATTR_CONNECTIONS) {
-    if (next[c.key] > connectionMax(c.key, next, height)) return null;
-  }
-
-  return { attrs: next, cost: costBetween(position, attrs, next) };
-}
-
-/** Net budget cost of moving from one attribute set to another. */
-export function costBetween(
-  position: PositionId,
-  from: Attributes,
-  to: Attributes,
-) {
-  let total = 0;
-
-  for (const k of ATTR_KEYS) {
-    for (let v = from[k]; v < to[k]; v++) total += pointCost(position, k, v);
-    for (let v = to[k]; v < from[k]; v++) total -= pointCost(position, k, v);
-  }
-
-  return total;
-}
-
-/* Compatibility exports for code that still references the old names. */
-export const ATTR_DEPENDENCIES: Partial<Record<AttrKey, AttrKey>> = {};
-export const ATTR_DEPENDENTS: Partial<Record<AttrKey, AttrKey[]>> = {};
+export const ATTR_DEPENDENTS: Partial<
+  Record<AttrKey, AttrKey[]>
+> = {};
 
 
 /* ---------------- nonlinear cost ---------------- */
@@ -481,45 +596,48 @@ export function tierCost(value: number) {
   if (value <= 69) return 1.00;
   if (value <= 79) return 1.15;
   if (value <= 84) return 1.35;
-  if (value <= 89) return 1.65;
-  if (value <= 94) return 2.25;
-  if (value <= 97) return 3.25;
-  return 4.50;
+  if (value <= 89) return 1.70;
+  if (value <= 94) return 2.40;
+  if (value <= 97) return 3.75;
+  return 5.50;
 }
 
-/** Extra multiplier applied to every point above 89 — the "90+ tax". */
 export function eliteTax(value: number) {
   if (value <= 79) return 1.00;
   if (value <= 84) return 1.05;
   if (value <= 89) return 1.15;
-  if (value <= 94) return 1.45;
-  if (value <= 97) return 1.75;
-  return 2.25;
+  if (value <= 91) return 1.80;
+  if (value <= 94) return 2.35;
+  if (value <= 97) return 3.10;
+  return 4.50;
 }
 
 /**
  * Attributes that swing gameplay the most carry a premium once they cross 89,
  * so stacking several of them is what really drains the budget.
  */
-const PREMIUM_ATTRS: Partial<Record<AttrKey, number>> = {
-  threePoint: 1.12,
-  midRange: 1.05,
+const PREMIUM_ATTRS: Partial<Record<AttrKey, number> > = {
+  threePoint: 1.18,
+  midRange: 1.08,
 
-  drivingDunk: 1.10,
+  drivingDunk: 1.20,
 
-  ballHandle: 1.10,
-  speedWithBall: 1.08,
+  ballHandle: 1.18,
+  speedWithBall: 1.15,
 
-  perimeterDefense: 1.08,
-  steal: 1.05,
+  perimeterDefense: 1.15,
+  steal: 1.10,
 
-  speed: 1.05,
-  agility: 1.05,
+  speed: 1.10,
+  agility: 1.08,
 
-  block: 1.05,
-  interiorDefense: 1.05,
+  block: 1.12,
+  interiorDefense: 1.08,
 
-  standingDunk: 1.05,
+  standingDunk: 1.10,
+
+  defensiveRebound: 1.08,
+  offensiveRebound: 1.05,
 };
 
 /** Cost of the single point taking `key` from `from` to `from + 1`. */
@@ -724,7 +842,7 @@ export function overall(
   );
 }
 
-const BUILD_FINISH_MARGIN = 1.035;
+const BUILD_FINISH_MARGIN = 1.00;
 
 /** Overall scale on the reference-build cost. Slightly generous so builds can
  * afford a bit of what they don't specialize in without being busted. */
@@ -935,9 +1053,7 @@ function referenceBudget(body: Body) {
 function calculateBudget(body: Body) {
   const base = referenceBudget(body);
 
-  const bodyModifier =
-    bodyBudgetMultiplier(body);
-
+  const bodyModifier = bodyBudgetMultiplier(body);
   const positionModifier =
     POSITION_BUDGET_MULTIPLIER[body.position];
 
@@ -966,7 +1082,10 @@ export function displayOverall(
     math.pivot,
   );
 
-  const remaining = Math.max(0, math.budget - spent);
+  const remaining = Math.max(
+    0,
+    math.budget - spent,
+  );
 
   const next = cheapestNextCost(
     build.position,
@@ -975,25 +1094,30 @@ export function displayOverall(
   );
 
   /*
-   * A build is exhausted only when there is literally no budget remaining,
-   * or there are no legal upgrades left at all.
+   * The build is finished when:
    *
-   * Crucially, an expensive next point that the player cannot currently afford
-   * does NOT turn the build into a 99.
+   * 1. There is effectively no budget remaining, OR
+   * 2. There is no legal attribute point left to purchase.
+   *
+   * Importantly, if there is enough budget for another point,
+   * the build CANNOT be 99.
    */
   const exhausted =
-    remaining <= 0.001 ||
-    next == null;
+    next == null ||
+    remaining <= 0.01 ||
+    next > remaining + 0.01;
 
   /*
-   * Hard safety rule:
+   * 99 is the completed-build rating.
    *
-   * If the player still has any budget left, 99 can never be displayed.
-   * This eliminates the previous "99 OVR with points remaining" bug.
+   * This guarantees:
+   *
+   * Budget exhausted -> 99
+   * Budget remaining -> max 98
    */
   const ovr = exhausted
-    ? raw
-    : Math.min(raw, TARGET_OVR - 1);
+    ? TARGET_OVR
+    : Math.min(raw, 98);
 
   return {
     ovr,
@@ -1387,9 +1511,30 @@ export function buildIdentity(build: Build): Identity {
 
 /* ---------------- helpers ---------------- */
 
-export function clampAttrsToBody(build: Build): Build {
+export function clampAttrsToBody(
+  build: Build,
+): Build {
   const caps = attributeCaps(build);
-  const attrs = { ...build.attrs };
-  for (const k of ATTR_KEYS) attrs[k] = clamp(attrs[k] ?? BASE_ATTR, BASE_ATTR, caps[k]);
-  return { ...build, attrs: enforceDependencies(attrs, build.height) };
+
+  let attrs = {
+    ...build.attrs,
+  };
+
+  for (const k of ATTR_KEYS) {
+    attrs[k] = clamp(
+      attrs[k] ?? BASE_ATTR,
+      BASE_ATTR,
+      caps[k],
+    );
+  }
+
+  attrs = enforceDependencies(
+    attrs,
+    caps,
+  );
+
+  return {
+    ...build,
+    attrs,
+  };
 }
