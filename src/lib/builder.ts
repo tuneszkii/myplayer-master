@@ -1338,23 +1338,6 @@ function walk(
   return path;
 }
 
-if (!pick) {
-  break;
-}
-
-attrs[pick.key] += 1;
-cost += pick.cost;
-
-path.push({
-  composite: weightedComposite(
-    body.position,
-    attrs,
-  ),
-  cost,
-});
-  return path;
-}
-
 /**
  * OVR no longer depends on a body-specific pivot. Keep the pivot field for
  * compatibility with existing UI/state code.
