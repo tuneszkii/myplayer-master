@@ -4,7 +4,9 @@ import {
   buildIdentity,
   buildQuality,
   categoryRatings,
+  nearMissIdentities,
   overall,
+  TAKEOVERS,
   TARGET_OVR,
   type Build,
 } from "@/lib/builder";
@@ -26,11 +28,13 @@ const TIER_COLOR: Record<string, string> = {
 
 export function BuildSummary({
   build,
+  name,
   spent,
   budget,
   pivot,
 }: {
   build: Build;
+  name: string;
   spent: number;
   budget: number;
   pivot: number;
@@ -40,6 +44,8 @@ export function BuildSummary({
   const quality = buildQuality(build);
   const identity = buildIdentity(build);
   const badges = badgeStates(build.attrs);
+  const nearMisses = nearMissIdentities(build);
+  const takeover = TAKEOVERS.find((t) => t.id === build.takeover);
   const done = ovr >= TARGET_OVR;
 
   return (
@@ -65,12 +71,36 @@ export function BuildSummary({
       </section>
 
       <section className="panel p-4">
-        <h3 className="mb-3 text-lg text-primary">Build identity</h3>
+        <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+          {name} · final build
+        </p>
+        <h3 className="mt-1 text-lg text-primary">Build name</h3>
         <p className="display text-3xl leading-none">{identity.archetype}</p>
         <p className="mt-1 text-sm text-muted-foreground">{identity.blurb}</p>
         <p className="mt-2 text-xs uppercase tracking-widest text-accent">
-          Takeover · {identity.takeover}
+          Takeover · {takeover ? takeover.label : identity.takeover}
         </p>
+      </section>
+
+      <section className="panel p-4">
+        <h3 className="mb-1 text-lg text-primary">Builds you came close to</h3>
+        <p className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Shift points toward these skills to land the name instead
+        </p>
+        <ul className="space-y-2">
+          {nearMisses.map((n) => (
+            <li
+              key={n.archetype}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <p className="display truncate text-xl leading-tight">{n.archetype}</p>
+                <p className="truncate text-xs text-muted-foreground">{n.blurb}</p>
+              </div>
+              <span className="shrink-0 font-mono text-xs text-accent">−{n.gap}</span>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="panel p-4">

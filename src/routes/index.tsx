@@ -34,6 +34,25 @@ export const Route = createFileRoute("/")({
 });
 
 const STORAGE_KEY = "2k26-myplayer-saves";
+const SLOT_COUNT = 10;
+
+function emptySlots(): SaveSlot[] {
+  return Array.from({ length: SLOT_COUNT }, (_, i) => ({
+    id: `slot-${i + 1}`,
+    name: `Slot ${i + 1}`,
+    build: null,
+    updatedAt: 0,
+  }));
+}
+
+/** Normalizes stored saves into exactly 10 ordered slots. */
+function toSlots(stored: SaveSlot[]): SaveSlot[] {
+  const base = emptySlots();
+  stored.slice(0, SLOT_COUNT).forEach((s, i) => {
+    if (s?.build) base[i] = { ...base[i]!, ...s, id: base[i]!.id };
+  });
+  return base;
+}
 
 function defaultBuild(): Build {
   const pos = POSITIONS[2]!;
@@ -55,14 +74,14 @@ function migrate(build: Build): Build {
 
 
 function Index() {
-  const [saves, setSaves] = useState<SaveSlot[]>([]);
+  const [saves, setSaves] = useState<SaveSlot[]>(emptySlots());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setSaves(JSON.parse(raw) as SaveSlot[]);
+      setSaves(toSlots(raw ? (JSON.parse(raw) as SaveSlot[]) : []));
     } catch {
       /* ignore corrupt storage */
     }
@@ -75,22 +94,18 @@ function Index() {
 
   const active = saves.find((s) => s.id === activeId) ?? null;
 
-  function createSave(name: string) {
-    const slot: SaveSlot = {
-      id: crypto.randomUUID(),
-      name,
-      build: defaultBuild(),
-      updatedAt: Date.now(),
-    };
-    setSaves((prev) => [...prev, slot]);
-    setActiveId(slot.id);
-  }
-
-  function selectSave(id: string) {
+  function createSave(id: string, name: string) {
     setSaves((prev) =>
       prev.map((s) =>
-        s.id === id ? { ...s, build: s.build ? migrate(s.build) : defaultBuild() } : s,
+        s.id === id ? { ...s, name, build: defaultBuild(), updatedAt: Date.now() } : s,
       ),
+    );
+    setActiveId(id);
+  }
+
+  function editSave(id: string) {
+    setSaves((prev) =>
+      prev.map((s) => (s.id === id && s.build ? { ...s, build: migrate(s.build) } : s)),
     );
     setActiveId(id);
   }
@@ -121,9 +136,17 @@ function Index() {
     <div className="court-bg">
       <SaveSelect
         saves={saves}
-        onSelect={selectSave}
+        onEdit={editSave}
         onCreate={createSave}
-        onDelete={(id) => setSaves((prev) => prev.filter((s) => s.id !== id))}
+        onDelete={(id) =>
+          setSaves((prev) =>
+            prev.map((s) =>
+              s.id === id
+                ? { ...s, name: `Slot ${s.id.split("-")[1]}`, build: null, updatedAt: 0 }
+                : s,
+            ),
+          )
+        }
       />
     </div>
   );

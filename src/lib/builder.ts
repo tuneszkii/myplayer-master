@@ -165,6 +165,8 @@ export interface Build {
   wingspan: number;
   hand: Handedness;
   attrs: Attributes;
+  /** Selected takeover id, when the player has picked one. */
+  takeover?: string;
 }
 
 export interface SaveSlot {
@@ -207,387 +209,225 @@ export function baseAttributes(): Attributes {
   return Object.fromEntries(ATTR_KEYS.map((k) => [k, BASE_ATTR])) as Attributes;
 }
 
-/* ---------------- attribute connections ---------------- */
+/* ---------------- attribute families + requirements ---------------- */
 
 /**
- * Attribute connections
+ * Attribute families.
  *
- * These are NOT hard 1:1 gates.
- *
- * Instead, an attribute's maximum is influenced by supporting attributes.
- * This is closer to the NBA 2K builder philosophy:
- *
- * - You can specialize.
- * - You don't have to max every supporting stat.
- * - But extreme ratings require a reasonable foundation.
- *
- * Example:
- *
- * 88 Speed With Ball does not require 88 Speed.
- * But you will need a combination of Speed + Ball Handle
- * that supports an 88 SWB.
+ * Attributes inside a family reinforce each other: the higher your family
+ * peers are, the cheaper the next point on a family member becomes, and the
+ * further you are ahead of your family, the more each point costs.
  */
+export const ATTRIBUTE_FAMILIES: { id: string; label: string; attrs: AttrKey[] }[] = [
+  { id: "shooting", label: "Shooting", attrs: ["closeShot", "midRange", "threePoint", "freeThrow"] },
+  { id: "finishing", label: "Finishing / Athletic", attrs: ["drivingLayup", "drivingDunk", "standingDunk", "vertical", "strength", "speed"] },
+  { id: "handles", label: "Ball Control", attrs: ["ballHandle", "speedWithBall", "passAccuracy", "speed", "agility"] },
+  { id: "perimD", label: "Perimeter Defense / Athletic", attrs: ["perimeterDefense", "steal", "speed", "agility"] },
+  { id: "interior", label: "Interior", attrs: ["interiorDefense", "block", "strength", "vertical", "postControl"] },
+  { id: "glass", label: "Rebounding / Athletic", attrs: ["offensiveRebound", "defensiveRebound", "vertical", "strength"] },
+];
 
-export interface AttributeConnection {
-  /**
-   * Attributes that contribute to the connected attribute.
-   */
-  supports: AttrKey[];
+const FAMILY_PEERS: Record<AttrKey, AttrKey[]> = (() => {
+  const out = Object.fromEntries(ATTR_KEYS.map((k) => [k, [] as AttrKey[]])) as Record<AttrKey, AttrKey[]>;
+  for (const fam of ATTRIBUTE_FAMILIES) {
+    for (const k of fam.attrs) {
+      for (const peer of fam.attrs) {
+        if (peer !== k && !out[k].includes(peer)) out[k].push(peer);
+      }
+    }
+  }
+  return out;
+})();
 
-  /**
-   * How much of the supporting average contributes.
-   *
-   * 0.50 means the supporting average contributes 50%.
-   */
-  supportWeight: number;
-
-  /**
-   * Minimum amount of support before the connection begins
-   * limiting the attribute.
-   */
-  softFloor: number;
-
-  /**
-   * How strongly the attribute is limited when support is low.
-   *
-   * Example:
-   * 0.75 means only 75% of the support deficit is applied.
-   */
-  penalty: number;
+/**
+ * Family synergy multiplier on the marginal cost of a point.
+ *
+ * Ahead of your family -> points cost more.
+ * Behind your family -> points cost less.
+ */
+export function familySynergy(key: AttrKey, from: number, attrs: Attributes) {
+  const peers = FAMILY_PEERS[key];
+  if (!peers || peers.length === 0) return 1;
+  const avg = peers.reduce((s, k) => s + attrs[k], 0) / peers.length;
+  const gap = clamp((from - avg) / 40, -0.75, 0.9);
+  return 1 + gap * 0.35;
 }
 
-export const ATTRIBUTE_CONNECTIONS: Partial<
-  Record<AttrKey, AttributeConnection>
-> = {
-  /* ---------------- shooting ---------------- */
+/**
+ * Linear support requirement.
+ *
+ * required = round(value * slope + offset + perInch * (height - 76))
+ *
+ * These are invertible, so lowering a support walks the dependent attribute
+ * back down point by point instead of snapping.
+ */
+export interface SupportReq {
+  support: AttrKey;
+  slope: number;
+  offset?: number;
+  /** Extra requirement per inch of height above 6'4". */
+  perInch?: number;
+}
 
-  threePoint: {
-    supports: ["midRange", "freeThrow"],
-    supportWeight: 0.65,
-    softFloor: 65,
-    penalty: 0.55,
-  },
+export const ATTRIBUTE_REQS: Partial<Record<AttrKey, SupportReq[]>> = {
+  /* shooting chain: close shot -> mid-range -> three / free throw */
+  midRange: [{ support: "closeShot", slope: 0.78 }],
+  threePoint: [{ support: "midRange", slope: 0.82 }],
+  freeThrow: [{ support: "midRange", slope: 0.62 }],
 
-  midRange: {
-    supports: ["threePoint", "freeThrow", "closeShot"],
-    supportWeight: 0.55,
-    softFloor: 60,
-    penalty: 0.45,
-  },
+  /* finishing */
+  drivingLayup: [
+    { support: "closeShot", slope: 0.9 },
+    { support: "speed", slope: 0.55 },
+    { support: "ballHandle", slope: 0.5 },
+  ],
+  drivingDunk: [
+    { support: "vertical", slope: 0.8 },
+    { support: "standingDunk", slope: 0.45, perInch: 1.7 },
+    { support: "strength", slope: 0.45 },
+  ],
+  standingDunk: [
+    { support: "strength", slope: 0.55 },
+    { support: "vertical", slope: 0.5 },
+  ],
+  postControl: [
+    { support: "strength", slope: 0.6 },
+    { support: "closeShot", slope: 0.45 },
+  ],
 
-  freeThrow: {
-    supports: ["midRange", "threePoint"],
-    supportWeight: 0.35,
-    softFloor: 60,
-    penalty: 0.35,
-  },
+  /* playmaking */
+  speedWithBall: [
+    { support: "speed", slope: 0.9 },
+    { support: "ballHandle", slope: 0.85 },
+  ],
+  ballHandle: [{ support: "agility", slope: 0.55 }],
+  passAccuracy: [{ support: "ballHandle", slope: 0.4 }],
 
-  closeShot: {
-    supports: ["midRange", "drivingLayup"],
-    supportWeight: 0.30,
-    softFloor: 55,
-    penalty: 0.30,
-  },
+  /* defense */
+  perimeterDefense: [
+    { support: "agility", slope: 0.6 },
+    { support: "speed", slope: 0.55 },
+  ],
+  steal: [
+    { support: "perimeterDefense", slope: 0.6 },
+    { support: "agility", slope: 0.5 },
+  ],
+  interiorDefense: [{ support: "strength", slope: 0.6 }],
+  block: [
+    { support: "interiorDefense", slope: 0.5 },
+    { support: "vertical", slope: 0.6, perInch: -1.2 },
+  ],
 
-  /* ---------------- finishing ---------------- */
-
-  drivingDunk: {
-    supports: ["vertical", "strength", "drivingLayup"],
-    supportWeight: 0.60,
-    softFloor: 60,
-    penalty: 0.65,
-  },
-
-  drivingLayup: {
-    supports: ["speed", "ballHandle", "closeShot"],
-    supportWeight: 0.35,
-    softFloor: 60,
-    penalty: 0.35,
-  },
-
-  standingDunk: {
-    supports: ["strength", "vertical", "closeShot"],
-    supportWeight: 0.50,
-    softFloor: 60,
-    penalty: 0.55,
-  },
-
-  postControl: {
-    supports: ["strength", "closeShot", "midRange"],
-    supportWeight: 0.40,
-    softFloor: 60,
-    penalty: 0.40,
-  },
-
-  /* ---------------- playmaking ---------------- */
-
-  speedWithBall: {
-    supports: ["speed", "ballHandle"],
-    supportWeight: 0.70,
-    softFloor: 65,
-    penalty: 0.70,
-  },
-
-  ballHandle: {
-    supports: ["speed", "speedWithBall", "agility"],
-    supportWeight: 0.30,
-    softFloor: 60,
-    penalty: 0.30,
-  },
-
-  passAccuracy: {
-    supports: ["ballHandle", "speedWithBall"],
-    supportWeight: 0.20,
-    softFloor: 55,
-    penalty: 0.25,
-  },
-
-  /* ---------------- defense ---------------- */
-
-  perimeterDefense: {
-    supports: ["speed", "agility", "steal"],
-    supportWeight: 0.50,
-    softFloor: 65,
-    penalty: 0.50,
-  },
-
-  steal: {
-    supports: ["perimeterDefense", "agility"],
-    supportWeight: 0.45,
-    softFloor: 60,
-    penalty: 0.45,
-  },
-
-  interiorDefense: {
-    supports: ["strength", "block"],
-    supportWeight: 0.50,
-    softFloor: 60,
-    penalty: 0.50,
-  },
-
-  block: {
-    supports: ["interiorDefense", "vertical", "strength"],
-    supportWeight: 0.55,
-    softFloor: 60,
-    penalty: 0.55,
-  },
-
-  /* ---------------- rebounding ---------------- */
-
-  offensiveRebound: {
-    supports: ["defensiveRebound", "strength", "vertical"],
-    supportWeight: 0.50,
-    softFloor: 60,
-    penalty: 0.50,
-  },
-
-  defensiveRebound: {
-    supports: ["offensiveRebound", "strength", "vertical"],
-    supportWeight: 0.55,
-    softFloor: 60,
-    penalty: 0.55,
-  },
-
-  /* ---------------- physicals ---------------- */
-
-  speed: {
-    supports: ["agility", "perimeterDefense"],
-    supportWeight: 0.30,
-    softFloor: 60,
-    penalty: 0.30,
-  },
-
-  agility: {
-    supports: ["speed", "perimeterDefense"],
-    supportWeight: 0.30,
-    softFloor: 60,
-    penalty: 0.30,
-  },
-
-  vertical: {
-    supports: ["drivingDunk", "block", "strength"],
-    supportWeight: 0.25,
-    softFloor: 60,
-    penalty: 0.25,
-  },
-
-  strength: {
-    supports: ["interiorDefense", "postControl", "standingDunk"],
-    supportWeight: 0.25,
-    softFloor: 55,
-    penalty: 0.25,
-  },
+  /* rebounding */
+  offensiveRebound: [
+    { support: "strength", slope: 0.5 },
+    { support: "vertical", slope: 0.55, perInch: -1.0 },
+  ],
+  defensiveRebound: [
+    { support: "strength", slope: 0.5 },
+    { support: "vertical", slope: 0.5, perInch: -1.0 },
+  ],
 };
 
-/**
- * Calculates the supporting rating for an attribute.
- *
- * We use a weighted average rather than requiring every connected
- * attribute to be equally high.
- */
-function connectionSupport(
-  key: AttrKey,
-  attrs: Attributes,
-): number {
-  const connection = ATTRIBUTE_CONNECTIONS[key];
+/** Supporting attributes for a connected attribute (compat shape). */
+export interface AttributeConnection {
+  supports: AttrKey[];
+}
 
-  if (!connection) return 99;
+export const ATTRIBUTE_CONNECTIONS: Partial<Record<AttrKey, AttributeConnection>> =
+  Object.fromEntries(
+    Object.entries(ATTRIBUTE_REQS).map(([k, reqs]) => [
+      k,
+      { supports: (reqs ?? []).map((r) => r.support) },
+    ]),
+  ) as Partial<Record<AttrKey, AttributeConnection>>;
 
-  const values = connection.supports.map(
-    (support) => attrs[support],
-  );
-
-  if (values.length === 0) return 99;
-
-  return (
-    values.reduce((sum, value) => sum + value, 0) /
-    values.length
+/** Support rating this requirement demands for `value`. */
+export function requiredSupport(req: SupportReq, value: number, height = 76) {
+  return Math.ceil(
+    value * req.slope + (req.offset ?? 0) + (req.perInch ?? 0) * (height - 76),
   );
 }
 
-/**
- * Calculates the maximum legal rating for a connected attribute.
- *
- * Important:
- *
- * This is a SOFT gate.
- *
- * A player with:
- *
- * Speed 80
- * Ball Handle 80
- *
- * can still get very high SWB.
- *
- * But a player with:
- *
- * Speed 55
- * Ball Handle 50
- *
- * cannot dump 95 points into SWB.
- */
+/** Highest value this requirement allows given the support's current rating. */
+function maxFromReq(req: SupportReq, supportValue: number, height = 76) {
+  const base = supportValue - (req.offset ?? 0) - (req.perInch ?? 0) * (height - 76);
+  return Math.floor(base / req.slope + 1e-9);
+}
+
+/** Requirements for an attribute, resolved against the current build. */
+export function attributeRequirements(
+  key: AttrKey,
+  value: number,
+  attrs: Attributes,
+  height = 76,
+) {
+  return (ATTRIBUTE_REQS[key] ?? []).map((req) => {
+    const need = requiredSupport(req, value, height);
+    return { support: req.support, need, have: attrs[req.support], met: attrs[req.support] >= need };
+  });
+}
+
+/** Maximum legal rating from attribute connections alone. */
 export function connectedMax(
   key: AttrKey,
   caps: Record<AttrKey, number>,
   attrs: Attributes,
+  height = 76,
 ): number {
-  const hardCap = caps[key];
-  const connection = ATTRIBUTE_CONNECTIONS[key];
-
-  if (!connection) {
-    return hardCap;
+  const reqs = ATTRIBUTE_REQS[key];
+  if (!reqs || reqs.length === 0) return caps[key];
+  let max = caps[key];
+  for (const req of reqs) {
+    max = Math.min(max, maxFromReq(req, attrs[req.support], height));
   }
-
-  const support = connectionSupport(key, attrs);
-
-  if (support >= connection.softFloor) {
-    /*
-     * Once the supporting attributes reach the floor,
-     * the connection stops heavily restricting the rating.
-     *
-     * We still allow the body's hard cap to control the final maximum.
-     */
-    return hardCap;
-  }
-
-  /*
-   * Deficit below the support floor.
-   */
-  const deficit = connection.softFloor - support;
-
-  /*
-   * Only apply part of the deficit.
-   *
-   * This creates a gradual restriction rather than a hard gate.
-   */
-  const penalty =
-    deficit * connection.penalty;
-
-  return Math.max(
-    BASE_ATTR,
-    Math.round(hardCap - penalty),
-  );
+  return Math.max(BASE_ATTR, max);
 }
 
-/**
- * Highest value an attribute can currently reach.
- */
+/** Highest value an attribute can currently reach. */
 export function effectiveMax(
   key: AttrKey,
   caps: Record<AttrKey, number>,
   attrs?: Attributes,
+  height = 76,
 ): number {
-  if (!attrs) {
-    return Math.max(
-      BASE_ATTR,
-      caps[key],
-    );
-  }
-
-  return Math.max(
-    BASE_ATTR,
-    Math.min(
-      caps[key],
-      connectedMax(key, caps, attrs),
-    ),
-  );
+  if (!attrs) return Math.max(BASE_ATTR, caps[key]);
+  return Math.max(BASE_ATTR, Math.min(caps[key], connectedMax(key, caps, attrs, height)));
 }
 
-/**
- * Enforces connections after attributes are changed.
- *
- * Unlike the old system, this does NOT drag an attribute directly
- * down to another attribute's rating.
- *
- * Instead, it only respects the calculated soft maximum.
- */
+/** Walks every attribute down until all connections are satisfied. */
 export function enforceDependencies(
   attrs: Attributes,
   caps?: Record<AttrKey, number>,
+  height = 76,
 ): Attributes {
-  if (!caps) {
-    return { ...attrs };
-  }
-
+  if (!caps) return { ...attrs };
   const out = { ...attrs };
-
-  /*
-   * Run multiple passes because attributes can support each other.
-   */
-  for (let pass = 0; pass < 4; pass++) {
+  for (let pass = 0; pass < 8; pass++) {
     let changed = false;
-
     for (const key of ATTR_KEYS) {
-      const max = effectiveMax(
-        key,
-        caps,
-        out,
-      );
-
+      const max = effectiveMax(key, caps, out, height);
       if (out[key] > max) {
         out[key] = max;
         changed = true;
       }
     }
-
     if (!changed) break;
   }
-
   return out;
 }
 
-/**
- * Kept for compatibility with any UI code that imports
- * ATTR_DEPENDENTS.
- */
-export const ATTR_DEPENDENCIES: Partial<
-  Record<AttrKey, AttrKey>
-> = {};
+export const ATTR_DEPENDENCIES: Partial<Record<AttrKey, AttrKey>> = {};
 
-export const ATTR_DEPENDENTS: Partial<
-  Record<AttrKey, AttrKey[]>
-> = {};
-
+export const ATTR_DEPENDENTS: Partial<Record<AttrKey, AttrKey[]>> = (() => {
+  const out: Partial<Record<AttrKey, AttrKey[]>> = {};
+  for (const [k, reqs] of Object.entries(ATTRIBUTE_REQS)) {
+    for (const r of reqs ?? []) {
+      (out[r.support] ??= []).push(k as AttrKey);
+    }
+  }
+  return out;
+})();
 
 /* ---------------- nonlinear cost ---------------- */
 
@@ -640,22 +480,27 @@ const PREMIUM_ATTRS: Partial<Record<AttrKey, number> > = {
   offensiveRebound: 1.05,
 };
 
-/** Cost of the single point taking `key` from `from` to `from + 1`. */
+/**
+ * Cost of the single point taking `key` from `from` to `from + 1`.
+ *
+ * When `attrs` is supplied the cost also reflects family synergy, so the same
+ * point is cheaper or pricier depending on the rest of the build.
+ */
 export function pointCost(
   position: PositionId,
   key: AttrKey,
   from: number,
+  attrs?: Attributes,
 ) {
-  const premium =
-    from >= 89
-      ? (PREMIUM_ATTRS[key] ?? 1)
-      : 1;
+  const premium = from >= 89 ? (PREMIUM_ATTRS[key] ?? 1) : 1;
+  const synergy = attrs ? familySynergy(key, from, attrs) : 1;
 
   return (
     tierCost(from) *
     eliteTax(from) *
     POSITION_WEIGHTS[position][key] *
-    premium
+    premium *
+    synergy
   );
 }
 
@@ -667,7 +512,7 @@ export function spentBudget(
 
   for (const k of ATTR_KEYS) {
     for (let v = BASE_ATTR; v < attrs[k]; v++) {
-      total += pointCost(position, k, v);
+      total += pointCost(position, k, v, attrs);
     }
   }
 
@@ -679,19 +524,16 @@ export function cheapestNextCost(
   position: PositionId,
   attrs: Attributes,
   caps: Record<AttrKey, number>,
+  height = 76,
 ) {
   let best: number | null = null;
 
   for (const k of ATTR_KEYS) {
-    const max = effectiveMax(k, caps, attrs);
+    const max = effectiveMax(k, caps, attrs, height);
 
     if (attrs[k] >= max) continue;
 
-    const cost = pointCost(
-      position,
-      k,
-      attrs[k],
-    );
+    const cost = pointCost(position, k, attrs[k], attrs);
 
     if (best == null || cost < best) {
       best = cost;
@@ -716,9 +558,9 @@ export interface PlannedAttrStep {
 /**
  * Plans a single +1/-1 step on `key`.
  *
- * Raising past the connected soft gate is allowed: the cheapest supporting
+ * Raising past a support requirement is allowed: the cheapest supporting
  * attribute is raised alongside it (recursively) until the target is legal.
- * Lowering re-runs the connection pass so dependents walk down smoothly.
+ * Lowering re-runs the requirement pass so dependents walk down smoothly.
  */
 export function planAttrStep(
   position: PositionId,
@@ -726,18 +568,18 @@ export function planAttrStep(
   caps: Record<AttrKey, number>,
   key: AttrKey,
   delta: number,
-  _height?: number,
+  height = 76,
 ): PlannedAttrStep | null {
   const from = attrs[key];
 
   if (delta < 0) {
     if (from <= BASE_ATTR) return null;
-    const next = enforceDependencies({ ...attrs, [key]: from - 1 }, caps);
+    const next = enforceDependencies({ ...attrs, [key]: from - 1 }, caps, height);
     return {
       key,
       from,
       to: next[key],
-      cost: -pointCost(position, key, from - 1),
+      cost: -(spentBudget(position, attrs) - spentBudget(position, next)),
       attrs: next,
     };
   }
@@ -745,21 +587,22 @@ export function planAttrStep(
   if (from >= caps[key]) return null;
 
   const out: Attributes = { ...attrs };
-  let cost = pointCost(position, key, from);
   out[key] = from + 1;
 
-  // Pull supports up until the target value is legal under its connection.
-  for (let guard = 0; guard < 40; guard++) {
-    if (out[key] <= effectiveMax(key, caps, out)) break;
+  // Pull supports up until the target value is legal under its requirements.
+  for (let guard = 0; guard < 60; guard++) {
+    if (out[key] <= effectiveMax(key, caps, out, height)) break;
 
-    const connection = ATTRIBUTE_CONNECTIONS[key];
-    if (!connection) return null;
+    const reqs = ATTRIBUTE_REQS[key];
+    if (!reqs || reqs.length === 0) return null;
 
     let cheapest: { support: AttrKey; cost: number } | null = null;
 
-    for (const support of connection.supports) {
+    for (const req of reqs) {
+      const support = req.support;
       if (out[support] >= caps[support]) continue;
-      const sub = planAttrStep(position, out, caps, support, 1);
+      if (out[support] >= requiredSupport(req, out[key], height) ) continue;
+      const sub = planAttrStep(position, out, caps, support, 1, height);
       if (!sub) continue;
       if (cheapest == null || sub.cost < cheapest.cost) {
         cheapest = { support, cost: sub.cost };
@@ -768,13 +611,14 @@ export function planAttrStep(
 
     if (!cheapest) return null;
 
-    const sub = planAttrStep(position, out, caps, cheapest.support, 1)!;
+    const sub = planAttrStep(position, out, caps, cheapest.support, 1, height)!;
     Object.assign(out, sub.attrs);
     out[key] = from + 1;
-    cost += sub.cost;
   }
 
-  if (out[key] > effectiveMax(key, caps, out)) return null;
+  if (out[key] > effectiveMax(key, caps, out, height)) return null;
+
+  const cost = spentBudget(position, out) - spentBudget(position, attrs);
 
   return { key, from, to: out[key], cost, attrs: out };
 }
@@ -1120,7 +964,7 @@ function referenceBudget(body: Body) {
   /*
    * Apply attribute connections after body caps.
    */
-  attrs = enforceDependencies(attrs, caps);
+  attrs = enforceDependencies(attrs, caps, body.height);
 
   return spentBudget(
     body.position,
@@ -1169,6 +1013,7 @@ export function displayOverall(
     build.position,
     build.attrs,
     math.caps,
+    build.height,
   );
 
   /*
@@ -1247,6 +1092,7 @@ function walk(
         k,
         caps,
         attrs,
+        body.height,
       );
 
       if (attrs[k] >= max) {
@@ -1257,6 +1103,7 @@ function walk(
         body.position,
         k,
         attrs[k],
+        attrs,
       );
 
       if (cost + c > limit) {
@@ -1678,10 +1525,157 @@ export function clampAttrsToBody(
   attrs = enforceDependencies(
     attrs,
     caps,
+    build.height,
   );
 
   return {
     ...build,
     attrs,
   };
+}
+
+/* ---------------- takeovers ---------------- */
+
+export interface TakeoverDef {
+  id: string;
+  label: string;
+  desc: string;
+  /** Attribute thresholds required to select the takeover. */
+  reqs: { key: AttrKey; min: number }[];
+}
+
+export const TAKEOVERS: TakeoverDef[] = [
+  {
+    id: "shotCreator",
+    label: "Shot Creator",
+    desc: "Tough dribble jumpers and pull-ups start falling at a much higher rate.",
+    reqs: [
+      { key: "midRange", min: 80 },
+      { key: "ballHandle", min: 75 },
+    ],
+  },
+  {
+    id: "spotUp",
+    label: "Spot-Up Precision",
+    desc: "Catch-and-shoot jumpers get a large boost, especially from deep.",
+    reqs: [
+      { key: "threePoint", min: 82 },
+      { key: "freeThrow", min: 65 },
+    ],
+  },
+  {
+    id: "slasher",
+    label: "Slasher",
+    desc: "Drives finish through contact and dunk attempts convert far more often.",
+    reqs: [
+      { key: "drivingLayup", min: 78 },
+      { key: "drivingDunk", min: 78 },
+      { key: "speed", min: 70 },
+    ],
+  },
+  {
+    id: "postScorer",
+    label: "Post Scorer",
+    desc: "Back-to-basket scoring and interior finishing become dominant.",
+    reqs: [
+      { key: "postControl", min: 78 },
+      { key: "closeShot", min: 75 },
+      { key: "strength", min: 70 },
+    ],
+  },
+  {
+    id: "playmaker",
+    label: "Playmaker",
+    desc: "Passing lanes open up and teammates get a shooting boost off your dimes.",
+    reqs: [
+      { key: "passAccuracy", min: 80 },
+      { key: "ballHandle", min: 75 },
+    ],
+  },
+  {
+    id: "lockdown",
+    label: "Lockdown Defender",
+    desc: "Ball handlers get smothered on the perimeter and steals come easy.",
+    reqs: [
+      { key: "perimeterDefense", min: 82 },
+      { key: "steal", min: 70 },
+      { key: "agility", min: 70 },
+    ],
+  },
+  {
+    id: "rimProtector",
+    label: "Rim Protector",
+    desc: "Blocks, contests and paint deterrence all spike.",
+    reqs: [
+      { key: "interiorDefense", min: 80 },
+      { key: "block", min: 78 },
+    ],
+  },
+  {
+    id: "rebounder",
+    label: "Rebounder",
+    desc: "Boards on both ends, plus faster putbacks and outlets.",
+    reqs: [
+      { key: "defensiveRebound", min: 82 },
+      { key: "offensiveRebound", min: 70 },
+    ],
+  },
+];
+
+export interface TakeoverState {
+  def: TakeoverDef;
+  unlocked: boolean;
+  /** Requirements not yet met. */
+  missing: { key: AttrKey; min: number; have: number }[];
+}
+
+export function takeoverStates(attrs: Attributes): TakeoverState[] {
+  return TAKEOVERS.map((def) => {
+    const missing = def.reqs
+      .filter((r) => attrs[r.key] < r.min)
+      .map((r) => ({ ...r, have: attrs[r.key] }));
+    return { def, unlocked: missing.length === 0, missing };
+  });
+}
+
+/* ---------------- near-miss identities ---------------- */
+
+/**
+ * Archetypes the build came closest to without landing on, ranked by how
+ * little would have been needed to get there.
+ */
+export function nearMissIdentities(build: Build): { archetype: string; blurb: string; gap: number }[] {
+  const a = build.attrs;
+  const caps = attributeCaps(build);
+  const rel = (keys: AttrKey[]) =>
+    keys.reduce((s, k) => s + a[k] / Math.max(caps[k], 1), 0) / keys.length;
+  const raw = (keys: AttrKey[]) => keys.reduce((s, k) => s + a[k], 0) / keys.length;
+
+  const groups: { id: TraitId; keys: AttrKey[] }[] = [
+    { id: "deep", keys: ["threePoint"] },
+    { id: "mid", keys: ["midRange", "ballHandle"] },
+    { id: "slash", keys: ["drivingDunk", "drivingLayup"] },
+    { id: "paint", keys: ["postControl", "standingDunk", "closeShot"] },
+    { id: "play", keys: ["passAccuracy", "speedWithBall"] },
+    { id: "perimD", keys: ["perimeterDefense", "steal"] },
+    { id: "rimD", keys: ["block", "interiorDefense"] },
+    { id: "glass", keys: ["offensiveRebound", "defensiveRebound"] },
+    { id: "athletic", keys: ["vertical", "speed", "agility"] },
+  ];
+
+  const scored = groups
+    .map((g) => ({ id: g.id, score: rel(g.keys), level: raw(g.keys) }))
+    .sort((x, y) => y.score - x.score);
+
+  const chosen = buildIdentity(build).archetype;
+  const noun = POSITION_NOUN[build.position];
+
+  return scored
+    .map((t) => ({
+      archetype: `${TRAIT_PREFIX[t.id]} ${noun}`,
+      blurb: TRAIT_BLURB[t.id],
+      gap: Math.max(0, Math.round((scored[0]!.score - t.score) * 100)),
+    }))
+    .filter((c) => c.archetype !== chosen)
+    .slice(0, 3);
 }
