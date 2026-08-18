@@ -739,68 +739,62 @@ export function planAttrStep(
   let best: PlannedAttrStep | null = null;
 
   for (const key of ATTR_KEYS) {
-    const current = attrs[key];
+  const current = attrs[key];
 
-    const max = effectiveMax(
-      key,
-      caps,
-      attrs,
-    );
+  const max = effectiveMax(
+    key,
+    caps,
+    attrs,
+  );
 
-    if (current >= max) {
-      continue;
-    }
-
-    const cost = pointCost(
-      position,
-      key,
-      current,
-    );
-
-    if (!Number.isFinite(cost) || cost <= 0) {
-      continue;
-    }
-
-    let gain = 0;
-
-    if (mode === "best") {
-      const before = weightedComposite(
-        position,
-        attrs,
-      );
-
-      const testAttrs = {
-        ...attrs,
-        [key]: current + 1,
-      };
-
-      const after = weightedComposite(
-        position,
-        testAttrs,
-      );
-
-      gain = after - before;
-    }
-
-    const ratio =
-      mode === "best"
-        ? gain / cost
-        : 1 / cost;
-
-    if (
-      best == null ||
-      ratio > best.ratio
-    ) {
-      best = {
-        key,
-        from: current,
-        to: current + 1,
-        cost,
-        gain,
-        ratio,
-      };
-    }
+  if (current >= max) {
+    continue;
   }
+
+  const cost = pointCost(
+    position,
+    key,
+    current,
+  );
+
+  if (!Number.isFinite(cost) || cost <= 0) {
+    continue;
+  }
+
+  // testAttrs = attrs after taking this +1 step
+  const testAttrs: Attributes = {
+    ...attrs,
+    [key]: current + 1,
+  };
+
+  let gain = 0;
+
+  if (mode === "best") {
+    const before = weightedComposite(position, attrs);
+    const after = weightedComposite(position, testAttrs);
+    gain = after - before;
+  }
+
+  const ratio =
+    mode === "best"
+      ? gain / cost
+      : 1 / cost;
+
+  if (
+    best == null ||
+    ratio > best.ratio
+  ) {
+    best = {
+      key,
+      from: current,
+      to: current + 1,
+      cost,
+      gain,
+      ratio,
+      attrs: testAttrs,
+    };
+  }
+}
 
   return best;
 }
