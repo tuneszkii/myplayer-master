@@ -703,101 +703,82 @@ export function cheapestNextCost(
 
 /* ---------------- attribute step planner ---------------- */
 
-/**
- * Plans the next legal attribute upgrade.
- *
- * This is kept as a separate exported function because the UI can use it
- * to preview the next attribute point without directly modifying the build.
- *
- * The planner respects:
- * - body caps
- * - connected-attribute limits
- * - nonlinear point costs
- * - position weights
- */
 export interface PlannedAttrStep {
   key: AttrKey;
   from: number;
   to: number;
+  /** Total budget cost of the step, including any supports it pulls up. */
   cost: number;
-  gain: number;
-  ratio: number;
+  /** Full attribute map after the step. */
+  attrs: Attributes;
 }
 
 /**
- * Finds the best legal next attribute point.
+ * Plans a single +1/-1 step on `key`.
  *
- * `mode = "best"` prioritizes the largest OVR/composite gain per cost.
- * `mode = "cheapest"` simply finds the least expensive legal point.
+ * Raising past the connected soft gate is allowed: the cheapest supporting
+ * attribute is raised alongside it (recursively) until the target is legal.
+ * Lowering re-runs the connection pass so dependents walk down smoothly.
  */
 export function planAttrStep(
   position: PositionId,
   attrs: Attributes,
   caps: Record<AttrKey, number>,
-  mode: "best" | "cheapest" = "best",
+  key: AttrKey,
+  delta: number,
+  _height?: number,
 ): PlannedAttrStep | null {
-  let best: PlannedAttrStep | null = null;
+  const from = attrs[key];
 
-  for (const key of ATTR_KEYS) {
-  const current = attrs[key];
-
-  const max = effectiveMax(
-    key,
-    caps,
-    attrs,
-  );
-
-  if (current >= max) {
-    continue;
-  }
-
-  const cost = pointCost(
-    position,
-    key,
-    current,
-  );
-
-  if (!Number.isFinite(cost) || cost <= 0) {
-    continue;
-  }
-
-  // testAttrs = attrs after taking this +1 step
-  const testAttrs: Attributes = {
-    ...attrs,
-    [key]: current + 1,
-  };
-
-  let gain = 0;
-
-  if (mode === "best") {
-    const before = weightedComposite(position, attrs);
-    const after = weightedComposite(position, testAttrs);
-    gain = after - before;
-  }
-
-  const ratio =
-    mode === "best"
-      ? gain / cost
-      : 1 / cost;
-
-  if (
-    best == null ||
-    ratio > best.ratio
-  ) {
-    best = {
+  if (delta < 0) {
+    if (from <= BASE_ATTR) return null;
+    const next = enforceDependencies({ ...attrs, [key]: from - 1 }, caps);
+    return {
       key,
-      from: current,
-      to: current + 1,
-      cost,
-      gain,
-      ratio,
-      attrs: testAttrs,
+      from,
+      to: next[key],
+      cost: -pointCost(position, key, from - 1),
+      attrs: next,
     };
   }
+
+  if (from >= caps[key]) return null;
+
+  const out: Attributes = { ...attrs };
+  let cost = pointCost(position, key, from);
+  out[key] = from + 1;
+
+  // Pull supports up until the target value is legal under its connection.
+  for (let guard = 0; guard < 40; guard++) {
+    if (out[key] <= effectiveMax(key, caps, out)) break;
+
+    const connection = ATTRIBUTE_CONNECTIONS[key];
+    if (!connection) return null;
+
+    let cheapest: { support: AttrKey; cost: number } | null = null;
+
+    for (const support of connection.supports) {
+      if (out[support] >= caps[support]) continue;
+      const sub = planAttrStep(position, out, caps, support, 1);
+      if (!sub) continue;
+      if (cheapest == null || sub.cost < cheapest.cost) {
+        cheapest = { support, cost: sub.cost };
+      }
+    }
+
+    if (!cheapest) return null;
+
+    const sub = planAttrStep(position, out, caps, cheapest.support, 1)!;
+    Object.assign(out, sub.attrs);
+    out[key] = from + 1;
+    cost += sub.cost;
+  }
+
+  if (out[key] > effectiveMax(key, caps, out)) return null;
+
+  return { key, from, to: out[key], cost, attrs: out };
 }
 
-  return best;
-}
 
 /* ---------------- categories + OVR ---------------- */
 
