@@ -5,6 +5,8 @@ import { AttributeRow } from "@/components/AttributeRow";
 import { BuildSummary } from "@/components/BuildSummary";
 import { CapOverview } from "@/components/CapOverview";
 import { HoldButton } from "@/components/HoldButton";
+import { BadgeBoard } from "@/components/BadgeBoard";
+import { TakeoverPicker } from "@/components/TakeoverPicker";
 import {
   ATTR_LIST,
   attributeCaps,
@@ -304,7 +306,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                           label={a.label}
                           value={build.attrs[a.key]}
                           cap={caps[a.key]}
-                          softMax={effectiveMax(a.key, caps, build.attrs)}
+                          softMax={effectiveMax(a.key, caps, build.attrs, build.height)}
                           capDelta={capDeltas[a.key]}
                           position={build.position}
                           nextCost={plan ? plan.cost : null}
@@ -329,8 +331,23 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
             </div>
           </section>
 
+          <div className={`${tab === "attrs" ? "" : "hidden"} space-y-5`}>
+            <BadgeBoard attrs={build.attrs} />
+            <TakeoverPicker
+              attrs={build.attrs}
+              selected={build.takeover}
+              onSelect={(id) => onChange({ ...build, takeover: id })}
+            />
+          </div>
+
           <div className={`${tab === "summary" ? "" : "hidden"}`}>
-            <BuildSummary build={build} spent={spent} budget={budget} pivot={math.pivot} />
+            <BuildSummary
+              build={build}
+              name={save.name}
+              spent={spent}
+              budget={budget}
+              pivot={math.pivot}
+            />
           </div>
         </div>
       </div>

@@ -1,86 +1,135 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatHeight, POSITIONS, type SaveSlot } from "@/lib/builder";
+import { formatHeight, type SaveSlot } from "@/lib/builder";
 
 interface Props {
   saves: SaveSlot[];
-  onSelect: (id: string) => void;
-  onCreate: (name: string) => void;
+  onEdit: (id: string) => void;
+  onCreate: (id: string, name: string) => void;
   onDelete: (id: string) => void;
 }
 
-export function SaveSelect({ saves, onSelect, onCreate, onDelete }: Props) {
+export function SaveSelect({ saves, onEdit, onCreate, onDelete }: Props) {
+  const [creatingId, setCreatingId] = useState<string | null>(null);
   const [name, setName] = useState("");
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col justify-center gap-8 px-6 py-16">
-      <header>
-        <p className="text-sm font-semibold uppercase tracking-[0.35em] text-primary">NBA 2K26</p>
-        <h1 className="mt-2 text-6xl leading-none text-foreground sm:text-7xl">MyPlayer Builder</h1>
-        <p className="mt-3 max-w-xl text-muted-foreground">
-          Pick a save file to load a build, or start a new one. Position sets your height range,
-          height sets weight and wingspan, and everything together sets your attribute caps.
+    <div className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-8 sm:py-14">
+      <header className="mb-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.35em] text-primary">NBA 2K26</p>
+        <h1 className="mt-2 text-5xl leading-none sm:text-7xl">MyPlayer Builder</h1>
+        <p className="mt-3 max-w-xl text-sm text-muted-foreground">
+          Ten build slots. Open an empty slot to start the build creator, or edit and delete the
+          builds you already made.
         </p>
       </header>
 
-      <div className="panel divide-y divide-border">
-        {saves.length === 0 && (
-          <p className="p-6 text-sm text-muted-foreground">No saves yet — create your first below.</p>
-        )}
-        {saves.map((s) => {
-          const pos = s.build ? POSITIONS.find((p) => p.id === s.build!.position) : null;
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {saves.map((slot, i) => {
+          const build = slot.build;
+          const creating = creatingId === slot.id;
+
+          if (build) {
+            return (
+              <li key={slot.id} className="panel p-4">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+                      Slot {i + 1} · {build.position} · {build.hand}-handed
+                    </p>
+                    <p className="display truncate text-3xl leading-tight">{slot.name}</p>
+                  </div>
+                  <div className="flex size-11 shrink-0 items-center justify-center rounded-md flame-bg text-base font-bold text-primary-foreground">
+                    {slot.name.slice(0, 2).toUpperCase()}
+                  </div>
+                </div>
+
+                <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-border pt-3">
+                  {[
+                    ["Height", formatHeight(build.height)],
+                    ["Weight", `${build.weight} lbs`],
+                    ["Wingspan", formatHeight(build.wingspan)],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        {label}
+                      </dt>
+                      <dd className="font-mono text-sm text-foreground">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" className="flex-1" onClick={() => onEdit(slot.id)}>
+                    Edit build
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => onDelete(slot.id)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </li>
+            );
+          }
+
           return (
-            <div key={s.id} className="flex items-center gap-4 p-4 sm:p-5">
-              <div className="flex size-12 shrink-0 items-center justify-center rounded-md flame-bg text-lg font-bold text-primary-foreground">
-                {s.name.slice(0, 2).toUpperCase()}
-              </div>
-              <button
-                onClick={() => onSelect(s.id)}
-                className="flex-1 text-left transition-colors hover:text-primary"
-              >
-                <span className="display block text-2xl leading-tight">{s.name}</span>
-                <span className="block text-xs uppercase tracking-widest text-muted-foreground">
-                  {s.build && pos
-                    ? `${pos.id} · ${formatHeight(s.build.height)} · ${s.build.weight} lbs · ${s.build.hand}-handed`
-                    : "Empty slot"}
-                </span>
-              </button>
-              <Button variant="outline" size="sm" onClick={() => onSelect(s.id)}>
-                Load
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground hover:text-destructive"
-                onClick={() => onDelete(s.id)}
-              >
-                Delete
-              </Button>
-            </div>
+            <li key={slot.id} className="panel p-4">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+                Slot {i + 1}
+              </p>
+              {creating ? (
+                <form
+                  className="mt-2 space-y-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!name.trim()) return;
+                    onCreate(slot.id, name.trim());
+                    setName("");
+                    setCreatingId(null);
+                  }}
+                >
+                  <Input
+                    autoFocus
+                    value={name}
+                    maxLength={24}
+                    placeholder="Build name"
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" type="submit" className="flex-1">
+                      Start builder
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => setCreatingId(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <button
+                  onClick={() => {
+                    setName("");
+                    setCreatingId(slot.id);
+                  }}
+                  className="mt-2 flex h-[7.5rem] w-full flex-col items-center justify-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                >
+                  <span className="display text-4xl leading-none">+</span>
+                  <span className="mt-1 text-[10px] uppercase tracking-[0.25em]">Empty slot</span>
+                </button>
+              )}
+            </li>
           );
         })}
-      </div>
-
-      <form
-        className="flex flex-col gap-3 sm:flex-row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!name.trim()) return;
-          onCreate(name.trim());
-          setName("");
-        }}
-      >
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="New save name (e.g. Season 1 Guard)"
-          maxLength={24}
-        />
-        <Button type="submit" className="shrink-0">
-          Create save
-        </Button>
-      </form>
+      </ul>
     </div>
   );
 }
