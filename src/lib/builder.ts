@@ -701,6 +701,109 @@ export function cheapestNextCost(
   return best;
 }
 
+/* ---------------- attribute step planner ---------------- */
+
+/**
+ * Plans the next legal attribute upgrade.
+ *
+ * This is kept as a separate exported function because the UI can use it
+ * to preview the next attribute point without directly modifying the build.
+ *
+ * The planner respects:
+ * - body caps
+ * - connected-attribute limits
+ * - nonlinear point costs
+ * - position weights
+ */
+export interface PlannedAttrStep {
+  key: AttrKey;
+  from: number;
+  to: number;
+  cost: number;
+  gain: number;
+  ratio: number;
+}
+
+/**
+ * Finds the best legal next attribute point.
+ *
+ * `mode = "best"` prioritizes the largest OVR/composite gain per cost.
+ * `mode = "cheapest"` simply finds the least expensive legal point.
+ */
+export function planAttrStep(
+  position: PositionId,
+  attrs: Attributes,
+  caps: Record<AttrKey, number>,
+  mode: "best" | "cheapest" = "best",
+): PlannedAttrStep | null {
+  let best: PlannedAttrStep | null = null;
+
+  for (const key of ATTR_KEYS) {
+    const current = attrs[key];
+
+    const max = effectiveMax(
+      key,
+      caps,
+      attrs,
+    );
+
+    if (current >= max) {
+      continue;
+    }
+
+    const cost = pointCost(
+      position,
+      key,
+      current,
+    );
+
+    if (!Number.isFinite(cost) || cost <= 0) {
+      continue;
+    }
+
+    let gain = 0;
+
+    if (mode === "best") {
+      const before = weightedComposite(
+        position,
+        attrs,
+      );
+
+      const testAttrs = {
+        ...attrs,
+        [key]: current + 1,
+      };
+
+      const after = weightedComposite(
+        position,
+        testAttrs,
+      );
+
+      gain = after - before;
+    }
+
+    const ratio =
+      mode === "best"
+        ? gain / cost
+        : 1 / cost;
+
+    if (
+      best == null ||
+      ratio > best.ratio
+    ) {
+      best = {
+        key,
+        from: current,
+        to: current + 1,
+        cost,
+        gain,
+        ratio,
+      };
+    }
+  }
+
+  return best;
+}
 
 /* ---------------- categories + OVR ---------------- */
 
@@ -1137,30 +1240,118 @@ interface WalkStep {
 }
 
 /** Greedy walk over legal points, picking best (or worst) composite-per-cost. */
-function walk(body: Body, caps: Record<AttrKey, number>, mode: "best" | "worst", limit = Infinity) {
+function walk(
+  body: Body,
+  caps: Record<AttrKey, number>,
+  mode: "best" | "worst",
+  limit = Infinity,
+) {
   const attrs = baseAttributes();
-  const path: WalkStep[] = [{ composite: weightedComposite(body.position, attrs), cost: 0 }];
+
+  const path: WalkStep[] = [
+    {
+      composite: weightedComposite(
+        body.position,
+        attrs,
+      ),
+      cost: 0,
+    },
+  ];
+
   let cost = 0;
 
   for (let step = 0; step < 4000; step++) {
-    let pick: { key: AttrKey; ratio: number; cost: number } | null = null;
+    let pick: {
+      key: AttrKey;
+      ratio: number;
+      cost: number;
+    } | null = null;
+
     for (const k of ATTR_KEYS) {
-  if (attrs[k] >= effectiveMax(k, caps, attrs)) continue;
-      const c = pointCost(body.position, k, attrs[k]);
-      if (cost + c > limit) continue;
-      const before = weightedComposite(body.position, attrs);
+      const max = effectiveMax(
+        k,
+        caps,
+        attrs,
+      );
+
+      if (attrs[k] >= max) {
+        continue;
+      }
+
+      const c = pointCost(
+        body.position,
+        k,
+        attrs[k],
+      );
+
+      if (cost + c > limit) {
+        continue;
+      }
+
+      const before = weightedComposite(
+        body.position,
+        attrs,
+      );
+
       attrs[k] += 1;
-      const gain = weightedComposite(body.position, attrs) - before;
+
+      const gain =
+        weightedComposite(
+          body.position,
+          attrs,
+        ) - before;
+
       attrs[k] -= 1;
+
       const ratio = gain / c;
-      const better = mode === "best" ? ratio > (pick?.ratio ?? -Infinity) : ratio < (pick?.ratio ?? Infinity);
-      if (!pick || better) pick = { key: k, ratio, cost: c };
+
+      const better =
+        mode === "best"
+          ? ratio > (pick?.ratio ?? -Infinity)
+          : ratio < (pick?.ratio ?? Infinity);
+
+      if (!pick || better) {
+        pick = {
+          key: k,
+          ratio,
+          cost: c,
+        };
+      }
     }
-    if (!pick) break;
+
+    if (!pick) {
+      break;
+    }
+
     attrs[pick.key] += 1;
     cost += pick.cost;
-    path.push({ composite: weightedComposite(body.position, attrs), cost });
+
+    path.push({
+      composite: weightedComposite(
+        body.position,
+        attrs,
+      ),
+      cost,
+    });
   }
+
+  return path;
+}
+
+if (!pick) {
+  break;
+}
+
+attrs[pick.key] += 1;
+cost += pick.cost;
+
+path.push({
+  composite: weightedComposite(
+    body.position,
+    attrs,
+  ),
+  cost,
+});
   return path;
 }
 
