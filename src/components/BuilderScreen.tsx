@@ -304,7 +304,7 @@ export function BuilderScreen({ save, build, onChange, onBack }: Props) {
                           label={a.label}
                           value={build.attrs[a.key]}
                           cap={caps[a.key]}
-                          softMax={effectiveMax(a.key, caps, build.attrs, build.height)}
+                          softMax={effectiveMax(a.key, caps, build.attrs)}
                           capDelta={capDeltas[a.key]}
                           position={build.position}
                           nextCost={plan ? plan.cost : null}
